@@ -436,7 +436,7 @@ class GaussianDiffusion:
                 cond_fn, out, x, t, model_kwargs=model_kwargs
             )
         sample = out["mean"] + nonzero_mask * th.exp(0.5 * out["log_variance"]) * noise
-        return {"sample": sample, "pred_xstart": out["pred_xstart"]}
+        return {"sample": sample, "pred_xstart": out["pred_xstart"], "t": t}
 
     def p_sample_loop(
         self,
@@ -470,6 +470,7 @@ class GaussianDiffusion:
         :return: a non-differentiable batch of samples.
         """
         final = None
+        mid = []
         for sample in self.p_sample_loop_progressive(
             model,
             shape,
@@ -482,7 +483,9 @@ class GaussianDiffusion:
             progress=progress,
         ):
             final = sample
-        return final["sample"]
+            mid.append(sample)
+        return final["sample"], mid
+
 
     def p_sample_loop_progressive(
         self,
@@ -734,12 +737,13 @@ class GaussianDiffusion:
             x_start, means=out["mean"], log_scales=0.5 * out["log_variance"]
         )
         assert decoder_nll.shape == x_start.shape
+        nll_map = decoder_nll
         decoder_nll = mean_flat(decoder_nll) / np.log(2.0)
 
         # At the first timestep return the decoder NLL,
         # otherwise return KL(q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t))
         output = th.where((t == 0), decoder_nll, kl)
-        return {"output": output, "pred_xstart": out["pred_xstart"]}
+        return {"output": output, "pred_xstart": out["pred_xstart"], 'nll_map': nll_map}
 
     def training_losses(self, model, x_start, t, model_kwargs=None, noise=None):
         """
@@ -852,30 +856,74 @@ class GaussianDiffusion:
                  - xstart_mse: an [N x T] tensor of x_0 MSEs for each timestep.
                  - mse: an [N x T] tensor of epsilon MSEs for each timestep.
         """
+        import cv2
         device = x_start.device
         batch_size = x_start.shape[0]
+    
+        def merge_list(x_list):
+            x_out = dict()
+            keys = x_list[0].keys()
+            n = len(x_list)
+            for k in keys:
+                x_out[k] = sum([m[k] for m in x_list]) / n
+            return x_out
 
         vb = []
+        vb_map = []
         xstart_mse = []
         mse = []
-        for t in list(range(self.num_timesteps))[::-1]:
-            t_batch = th.tensor([t] * batch_size, device=device)
-            noise = th.randn_like(x_start)
-            x_t = self.q_sample(x_start=x_start, t=t_batch, noise=noise)
-            # Calculate VLB term at the current timestep
-            with th.no_grad():
-                out = self._vb_terms_bpd(
-                    model,
-                    x_start=x_start,
-                    x_t=x_t,
-                    t=t_batch,
-                    clip_denoised=clip_denoised,
-                    model_kwargs=model_kwargs,
-                )
+        for t in list(range(self.num_timesteps))[::-1][-5:]:
+            out_list = []
+            for i in range(10):
+                t_batch = th.tensor([t] * batch_size, device=device)
+                noise = th.randn_like(x_start)
+                x_t = self.q_sample(x_start=x_start, t=t_batch, noise=noise)
+                # Calculate VLB term at the current timestep
+                with th.no_grad():
+                    out = self._vb_terms_bpd(
+                        model,
+                        x_start=x_start,
+                        x_t=x_t,
+                        t=t_batch,
+                        clip_denoised=clip_denoised,
+                        model_kwargs=model_kwargs,
+                    )
+                out_list.append(out)
+            out = merge_list(out_list)
             vb.append(out["output"])
+            vb_map.append(out["nll_map"])
             xstart_mse.append(mean_flat((out["pred_xstart"] - x_start) ** 2))
             eps = self._predict_eps_from_xstart(x_t, t_batch, out["pred_xstart"])
             mse.append(mean_flat((eps - noise) ** 2))
+
+            if t < 5:
+                # x0 = (th.clip((out["pred_xstart"].cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
+                # xt = (th.clip((x_t.cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
+                if not hasattr(self, 'id'):
+                    self.id = 0
+                # cv2.imwrite('./img_{:04d}_{:04d}.jpg'.format(self.id, t), x0)
+
+                # eps_vis = ((eps.cpu().permute(0, 2, 3, 1)+1)*100).clamp(0, 255).numpy()[0, :, :].mean(-1).astype(np.uint8)
+                # eps_err_vis = (((eps - noise).abs()).cpu().permute(0, 2, 3, 1) * 127.5).clamp(0, 255).numpy()[0].mean(-1).astype(np.uint8)
+                # cv2.imwrite('./img_{:04d}_{:04d}_eps.jpg'.format(self.id, t), eps_vis)
+                # cv2.imwrite('./img_{:04d}_{:04d}_eps_error.jpg'.format(self.id, t), eps_err_vis)
+                # cv2.imwrite('./img_{:04d}_{:04d}_eps_error.jpg'.format(self.id, t), xt)
+                vb_vis = (out["nll_map"] * 10).cpu().permute(0, 2, 3, 1).clamp(0, 255).numpy()[0].sum(-1).astype(np.uint8)
+                cv2.imwrite('./img_{:04d}_{:04d}_vbvis.jpg'.format(self.id, t), vb_vis)
+                
+
+
+        if not hasattr(self, 'id'):
+            self.id = 0
+        x0 = (th.clip((x_start.cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
+        cv2.imwrite('./img_{:04d}_origin.jpg'.format(self.id), x0)
+        vb_map = vb_map[-5:]
+        vb_map = sum(vb_map) / len(vb_map)
+        vb_map_last_five = vb_map
+        # print(vb_map.min(), vb_map.max(), vb_map.mean())
+        vb_map = th.clip((vb_map * 10).cpu().permute(0, 2, 3, 1), 0, 255).numpy()[0].sum(-1).astype(np.uint8)
+        cv2.imwrite('./img_{:04d}_vbmap.jpg'.format(self.id), vb_map)
+        self.id += 1
 
         vb = th.stack(vb, dim=1)
         xstart_mse = th.stack(xstart_mse, dim=1)
@@ -883,6 +931,8 @@ class GaussianDiffusion:
 
         prior_bpd = self._prior_bpd(x_start)
         total_bpd = vb.sum(dim=1) + prior_bpd
+        # total_bpd = vb_map_last_five.sum(dim=1).mean(dim=-1).mean(dim=-1)
+        total_bpd = vb_map_last_five.sum(dim=1).flatten(1).topk(128, dim=-1)[0].mean(dim=-1)
         return {
             "total_bpd": total_bpd,
             "prior_bpd": prior_bpd,

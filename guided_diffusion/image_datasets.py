@@ -17,6 +17,7 @@ def load_data(
     deterministic=False,
     random_crop=False,
     random_flip=True,
+    anomaly=False,
 ):
     """
     For a dataset, create a generator over (images, kwargs) pairs.
@@ -46,6 +47,10 @@ def load_data(
         class_names = [bf.basename(path).split("_")[0] for path in all_files]
         sorted_classes = {x: i for i, x in enumerate(sorted(set(class_names)))}
         classes = [sorted_classes[x] for x in class_names]
+    
+    anom_gt = None
+    if anomaly:
+        anom_gt = [int('good' not in path) for path in all_files]
     dataset = ImageDataset(
         image_size,
         all_files,
@@ -54,17 +59,21 @@ def load_data(
         num_shards=MPI.COMM_WORLD.Get_size(),
         random_crop=random_crop,
         random_flip=random_flip,
+        anom_gt=anom_gt,
     )
     if deterministic:
         loader = DataLoader(
-            dataset, batch_size=batch_size, shuffle=False, num_workers=1, drop_last=True
+            dataset, batch_size=batch_size, shuffle=False, num_workers=1, drop_last=False
         )
     else:
         loader = DataLoader(
             dataset, batch_size=batch_size, shuffle=True, num_workers=1, drop_last=True
         )
-    while True:
+    if anomaly:
         yield from loader
+    else:
+        while True:
+            yield from loader
 
 
 def _list_image_files_recursively(data_dir):
@@ -89,6 +98,7 @@ class ImageDataset(Dataset):
         num_shards=1,
         random_crop=False,
         random_flip=True,
+        anom_gt=None,
     ):
         super().__init__()
         self.resolution = resolution
@@ -96,6 +106,7 @@ class ImageDataset(Dataset):
         self.local_classes = None if classes is None else classes[shard:][::num_shards]
         self.random_crop = random_crop
         self.random_flip = random_flip
+        self.anom_gt = anom_gt
 
     def __len__(self):
         return len(self.local_images)
@@ -120,6 +131,8 @@ class ImageDataset(Dataset):
         out_dict = {}
         if self.local_classes is not None:
             out_dict["y"] = np.array(self.local_classes[idx], dtype=np.int64)
+        if self.anom_gt is not None:
+            out_dict["anom_gt"] = np.array(self.anom_gt[idx], dtype=np.int64)
         return np.transpose(arr, [2, 0, 1]), out_dict
 
 

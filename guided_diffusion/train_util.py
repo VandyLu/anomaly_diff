@@ -180,6 +180,13 @@ class TrainLoop:
     def forward_backward(self, batch, cond):
         self.mp_trainer.zero_grad()
         for i in range(0, batch.shape[0], self.microbatch):
+            # if i % 20 == 0:
+            #     import cv2
+            #     sample = batch[0].cpu().detach().permute(1, 2, 0)
+            #     img_i = ((sample + 1) * 127.5).clamp(0, 255).to(th.uint8).numpy()
+            #     cv2.imwrite('test_{:08d}.png'.format(i), img_i)
+            #     print('saved to ', i)
+
             micro = batch[i : i + self.microbatch].to(dist_util.dev())
             micro_cond = {
                 k: v[i : i + self.microbatch].to(dist_util.dev())
