@@ -155,7 +155,7 @@ class TrainLoop:
             not self.lr_anneal_steps
             or self.step + self.resume_step < self.lr_anneal_steps
         ):
-            batch, cond = next(self.data)
+            batch, _, cond = next(self.data)
             self.run_step(batch, cond)
             if self.step % self.log_interval == 0:
                 logger.dumpkvs()
@@ -194,6 +194,8 @@ class TrainLoop:
             }
             last_batch = (i + self.microbatch) >= batch.shape[0]
             t, weights = self.schedule_sampler.sample(micro.shape[0], dist_util.dev())
+
+            micro_cond.pop('anom_gt')
 
             compute_losses = functools.partial(
                 self.diffusion.training_losses,

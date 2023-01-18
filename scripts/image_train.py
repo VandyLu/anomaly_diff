@@ -36,6 +36,7 @@ def main():
         image_size=args.image_size,
         class_cond=args.class_cond,
         random_flip=False,
+        anomaly=True
     )
 
     logger.log("training...")

@@ -18,6 +18,7 @@ def load_data(
     random_crop=False,
     random_flip=True,
     anomaly=False,
+    infinte_loop=True,
 ):
     """
     For a dataset, create a generator over (images, kwargs) pairs.
@@ -51,15 +52,25 @@ def load_data(
     anom_gt = None
     if anomaly:
         anom_gt = [int('good' not in path) for path in all_files]
-    dataset = ImageDataset(
+        # load gt mask
+        gt_mask_path = []
+        for path in all_files:
+            gt_path = None
+            if 'good' not in path:
+                gt_path = path.replace('test', 'ground_truth')
+                gt_path = gt_path.replace('.png', '_mask.png')
+            gt_mask_path.append(gt_path)
+            
+    dataset = AnomalyImageDataset(
         image_size,
         all_files,
+        anom_gt,
+        gt_mask_path,
         classes=classes,
         shard=MPI.COMM_WORLD.Get_rank(),
         num_shards=MPI.COMM_WORLD.Get_size(),
         random_crop=random_crop,
         random_flip=random_flip,
-        anom_gt=anom_gt,
     )
     if deterministic:
         loader = DataLoader(
@@ -69,7 +80,7 @@ def load_data(
         loader = DataLoader(
             dataset, batch_size=batch_size, shuffle=True, num_workers=1, drop_last=True
         )
-    if anomaly:
+    if not infinte_loop:
         yield from loader
     else:
         while True:
@@ -98,7 +109,6 @@ class ImageDataset(Dataset):
         num_shards=1,
         random_crop=False,
         random_flip=True,
-        anom_gt=None,
     ):
         super().__init__()
         self.resolution = resolution
@@ -106,7 +116,6 @@ class ImageDataset(Dataset):
         self.local_classes = None if classes is None else classes[shard:][::num_shards]
         self.random_crop = random_crop
         self.random_flip = random_flip
-        self.anom_gt = anom_gt
 
     def __len__(self):
         return len(self.local_images)
@@ -131,9 +140,54 @@ class ImageDataset(Dataset):
         out_dict = {}
         if self.local_classes is not None:
             out_dict["y"] = np.array(self.local_classes[idx], dtype=np.int64)
-        if self.anom_gt is not None:
-            out_dict["anom_gt"] = np.array(self.anom_gt[idx], dtype=np.int64)
         return np.transpose(arr, [2, 0, 1]), out_dict
+
+class AnomalyImageDataset(ImageDataset):
+
+    def __init__(
+        self,
+        resolution,
+        image_paths,
+        anom_gt,
+        gt_mask_path,
+        **kwargs,
+    ):
+        super().__init__(resolution, image_paths, **kwargs)
+        self.anom_gt = anom_gt
+        self.gt_mask_path = gt_mask_path
+
+    def __getitem__(self, idx):
+        path = self.local_images[idx]
+        with bf.BlobFile(path, "rb") as f:
+            pil_image = Image.open(f)
+            pil_image.load()
+        pil_image = pil_image.convert("RGB")
+
+        gt_path = self.gt_mask_path[idx]
+        if gt_path is not None:
+            with bf.BlobFile(gt_path, "rb") as f:
+                pil_mask = Image.open(f)
+                pil_mask.load()
+            pil_mask = pil_mask.convert("L")
+        else:
+            pil_mask = Image.fromarray(np.zeros(pil_image.size).astype(np.uint8)).convert("L")
+
+        arr = center_crop_arr(pil_image, self.resolution)
+        mask = center_crop_arr(pil_mask, self.resolution)
+
+        if self.random_flip and random.random() < 0.5:
+            arr = arr[:, ::-1]
+            mask = mask[:, ::-1]
+
+        arr = arr.astype(np.float32) / 127.5 - 1
+
+        out_dict = {}
+        if self.local_classes is not None:
+            out_dict["y"] = np.array(self.local_classes[idx], dtype=np.int64)
+
+        out_dict["anom_gt"] = np.array(self.anom_gt[idx], dtype=np.int64)
+
+        return np.transpose(arr, [2, 0, 1]), mask, out_dict
 
 
 def center_crop_arr(pil_image, image_size):

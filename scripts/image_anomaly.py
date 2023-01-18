@@ -45,6 +45,7 @@ def main():
         deterministic=True,
         random_flip=False,
         anomaly=True,
+        infinte_loop=False,
     )
 
     logger.log("evaluating...")
@@ -58,11 +59,13 @@ def run_bpd_evaluation(model, diffusion, data, num_samples, clip_denoised):
     anom_metrics = {'roc': []}
     labels = []
     scores = []
+    pred_masks = []
+    gt_masks = []
     idx = 0 
-    for batch, model_kwargs in data:
+    for batch, gt_mask, model_kwargs in data:
         anom_gt = model_kwargs.pop('anom_gt')
-        score = th.tensor(anom_gt).float()
         labels.append(anom_gt)
+        gt_masks.append(gt_mask)
 
         batch = batch.to(dist_util.dev())
         model_kwargs = {k: v.to(dist_util.dev()) for k, v in model_kwargs.items()}
@@ -70,6 +73,7 @@ def run_bpd_evaluation(model, diffusion, data, num_samples, clip_denoised):
             model, batch, clip_denoised=clip_denoised, model_kwargs=model_kwargs
         )
         scores.append(minibatch_metrics['total_bpd'])
+        pred_masks.append(minibatch_metrics['pred_mask'])
 
         for key, term_list in all_metrics.items():
             terms = minibatch_metrics[key].mean(dim=0) / dist.get_world_size()
@@ -82,14 +86,19 @@ def run_bpd_evaluation(model, diffusion, data, num_samples, clip_denoised):
         all_bpd.append(total_bpd.item())
         num_complete += dist.get_world_size() * batch.shape[0]
 
-
-        logger.log(f"done {num_complete} samples: bpd={np.mean(all_bpd)}")
+        logger.log(f"done {num_complete} samples: bpd={total_bpd.item()}")
     
     if dist.get_rank() == 0:
         labels = th.cat(labels, dim=0)
         scores = th.cat(scores, dim=0)
         roc = evaluate(labels, scores, metric='roc')
-        print(roc)
+        print('roc: ', roc)
+        gt_masks = (th.cat(gt_masks, dim=0)/255).long()
+        pred_masks = th.cat(pred_masks, dim=0)
+        pro = evaluate(gt_masks, pred_masks, metric='pro')
+        print('pro: ', pro)
+        pproc = evaluate(gt_masks, pred_masks, metric='perpixel_roc')
+        print('pproc: ', pproc)
 
     if dist.get_rank() == 0:
         for name, terms in all_metrics.items():

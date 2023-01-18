@@ -908,7 +908,7 @@ class GaussianDiffusion:
                 # cv2.imwrite('./img_{:04d}_{:04d}_eps.jpg'.format(self.id, t), eps_vis)
                 # cv2.imwrite('./img_{:04d}_{:04d}_eps_error.jpg'.format(self.id, t), eps_err_vis)
                 # cv2.imwrite('./img_{:04d}_{:04d}_eps_error.jpg'.format(self.id, t), xt)
-                vb_vis = (out["nll_map"] * 10).cpu().permute(0, 2, 3, 1).clamp(0, 255).numpy()[0].sum(-1).astype(np.uint8)
+                vb_vis = (out["nll_map"] * 10).cpu().permute(0, 2, 3, 1).sum(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
                 cv2.imwrite('./img_{:04d}_{:04d}_vbvis.jpg'.format(self.id, t), vb_vis)
                 
 
@@ -921,7 +921,7 @@ class GaussianDiffusion:
         vb_map = sum(vb_map) / len(vb_map)
         vb_map_last_five = vb_map
         # print(vb_map.min(), vb_map.max(), vb_map.mean())
-        vb_map = th.clip((vb_map * 10).cpu().permute(0, 2, 3, 1), 0, 255).numpy()[0].sum(-1).astype(np.uint8)
+        vb_map = th.clip((vb_map * 10).cpu().permute(0, 2, 3, 1).sum(-1), 0, 255).numpy()[0].astype(np.uint8)
         cv2.imwrite('./img_{:04d}_vbmap.jpg'.format(self.id), vb_map)
         self.id += 1
 
@@ -932,13 +932,16 @@ class GaussianDiffusion:
         prior_bpd = self._prior_bpd(x_start)
         total_bpd = vb.sum(dim=1) + prior_bpd
         # total_bpd = vb_map_last_five.sum(dim=1).mean(dim=-1).mean(dim=-1)
-        total_bpd = vb_map_last_five.sum(dim=1).flatten(1).topk(128, dim=-1)[0].mean(dim=-1)
+        total_bpd = vb_map_last_five.sum(dim=1).flatten(1).topk(32, dim=-1)[0].mean(dim=-1)
+        pred_mask = vb_map_last_five.sum(dim=1)
+        print(pred_mask.shape)
         return {
             "total_bpd": total_bpd,
             "prior_bpd": prior_bpd,
             "vb": vb,
             "xstart_mse": xstart_mse,
             "mse": mse,
+            "pred_mask": pred_mask,
         }
 
 
