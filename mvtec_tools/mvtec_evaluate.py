@@ -170,6 +170,7 @@ def roc(labels, scores, saveto=None):
     # Equal Error Rate
     eer = brentq(lambda x: 1. - x - interp1d(fpr, tpr)(x), 0., 1.)
 
+    saveto = './'
     if saveto:
         plt.figure()
         lw = 2

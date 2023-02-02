@@ -61,11 +61,14 @@ def run_bpd_evaluation(model, diffusion, data, num_samples, clip_denoised):
     scores = []
     pred_masks = []
     gt_masks = []
+    img_paths = []
     idx = 0 
     for batch, gt_mask, model_kwargs in data:
         anom_gt = model_kwargs.pop('anom_gt')
+        img_path = model_kwargs.pop('img_path')
         labels.append(anom_gt)
         gt_masks.append(gt_mask)
+        img_paths.extend(img_path)
 
         batch = batch.to(dist_util.dev())
         model_kwargs = {k: v.to(dist_util.dev()) for k, v in model_kwargs.items()}
@@ -93,6 +96,9 @@ def run_bpd_evaluation(model, diffusion, data, num_samples, clip_denoised):
         scores = th.cat(scores, dim=0)
         roc = evaluate(labels, scores, metric='roc')
         print('roc: ', roc)
+        print(len(img_paths))
+        for i in range(len(img_paths)):
+            np.savez(img_paths[i], pred_masks[i].cpu().numpy())
         gt_masks = (th.cat(gt_masks, dim=0)/255).long()
         pred_masks = th.cat(pred_masks, dim=0)
         pro = evaluate(gt_masks, pred_masks, metric='pro')

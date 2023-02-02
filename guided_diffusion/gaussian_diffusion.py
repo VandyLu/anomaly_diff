@@ -10,6 +10,7 @@ import math
 
 import numpy as np
 import torch as th
+import torch.nn.functional as F
 
 from .nn import mean_flat
 from .losses import normal_kl, discretized_gaussian_log_likelihood
@@ -859,7 +860,7 @@ class GaussianDiffusion:
         import cv2
         device = x_start.device
         batch_size = x_start.shape[0]
-    
+
         def merge_list(x_list):
             x_out = dict()
             keys = x_list[0].keys()
@@ -872,9 +873,9 @@ class GaussianDiffusion:
         vb_map = []
         xstart_mse = []
         mse = []
-        for t in list(range(self.num_timesteps))[::-1][-5:]:
+        for t in list(range(self.num_timesteps))[::-1][-3:]:
             out_list = []
-            for i in range(10):
+            for i in range(5):
                 t_batch = th.tensor([t] * batch_size, device=device)
                 noise = th.randn_like(x_start)
                 x_t = self.q_sample(x_start=x_start, t=t_batch, noise=noise)
@@ -897,6 +898,7 @@ class GaussianDiffusion:
             mse.append(mean_flat((eps - noise) ** 2))
 
             if t < 5:
+            # if t % 20 == 0:
                 # x0 = (th.clip((out["pred_xstart"].cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
                 # xt = (th.clip((x_t.cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
                 if not hasattr(self, 'id'):
@@ -959,3 +961,149 @@ def _extract_into_tensor(arr, timesteps, broadcast_shape):
     while len(res.shape) < len(broadcast_shape):
         res = res[..., None]
     return res.expand(broadcast_shape)
+
+from torchvision.models import resnet50, resnet18, wide_resnet50_2
+class FeatureExtractor(th.nn.Module):
+    def __init__(self):
+        super(FeatureExtractor, self).__init__()
+        self.model = resnet50(pretrained=True)
+        # self.model = wide_resnet50_2(pretrained=True)
+        self.model.eval()
+        self.model.cuda()
+    
+    def forward(self, img):
+        x = self.model.conv1(img)
+        x = self.model.bn1(x)
+        x = self.model.relu(x)
+        x = self.model.maxpool(x)
+
+        x1 = self.model.layer1(x)
+        x2 = self.model.layer2(x1)
+        x3 = self.model.layer3(x2)
+        x4 = self.model.layer4(x3)
+    
+        xg = self.model.avgpool(x4)
+
+        x11 = x1
+        x21 = F.interpolate(x2, size=x1.shape[-2:], mode='nearest')
+        x31 = F.interpolate(x3, size=x1.shape[-2:], mode='nearest')
+        x41 = F.interpolate(x4, size=x1.shape[-2:], mode='nearest')
+
+        return [x1, x2, x3, x4], xg
+    
+class Padim(th.nn.Module):
+    def __init__(self, ):
+        super().__init__()
+        self.height = 224
+        self.width = 224
+
+        self.stages = [0, 1, 2]
+        self.online_encoder = FeatureExtractor()
+        self.rand_dims = th.randperm((256+512+1024)//1)[:500].cuda()
+    
+    def train_padim(self, data_loader):
+        
+        outputs = []
+        with th.no_grad():
+            idx = 0 
+            for data in data_loader:
+                img, mask, _ = data
+                img = img.cuda()
+                idx += 1
+                xl, xg = self.online_encoder(img)
+
+                xl = [f.mean(dim=0, keepdim=True) for f in xl]
+                    
+                xl.append(xg)
+
+                outputs.append(xl)
+
+            x1, x2, x3, x4, xg = map(list, zip(*outputs))
+            self.feat1 = th.cat(x1, dim=0).mean(dim=0, keepdim=True)
+            self.feat2 = th.cat(x2, dim=0).mean(dim=0, keepdim=True)
+            self.feat3 = th.cat(x3, dim=0).mean(dim=0, keepdim=True)
+            self.feat4 = th.cat(x4, dim=0).mean(dim=0, keepdim=True)
+
+        with th.no_grad():
+            outputs = []
+            H, W, C = self.height//4, self.width//4, len(self.rand_dims)
+
+            S = th.zeros((H, W, C, C)).cuda()
+            n_count = 0
+            for data in data_loader:
+                img, mask, _ = data
+                img = img.cuda()
+
+                n_count += img.shape[0]
+
+                if img.size(1) == 1:
+                    img = img.expand(-1, 3, -1, -1)
+
+                xl, xg = self.online_encoder(img)
+
+                xl = self.fuse_feats(xl, self.stages)
+                fm = self.fuse_feats(self.featmaps, self.stages)
+
+                fi = self.reduce_dimension(xl)
+                fm = self.reduce_dimension(fm)
+
+                N, C, H, W = fi.size()
+                assert N == 1
+                fi = fi - fm
+                fi = fi.permute(0, 2, 3, 1).reshape(-1, C, 1)
+                    
+                Si = fi.bmm(fi.permute(0, 2, 1)) # NHW, C, C
+                # Note: sum will cause pytorch bug
+                # S += Si.view(N, H, W, C, C).sum(dim=0, keepdim=False)
+                S += Si.view(H, W, C, C)
+
+            S /= (n_count - 1)
+            S += 0.01 * th.eye(S.size(-1)).expand_as(S).cuda()
+
+            S_inv = th.inverse(S)
+            self.S = S
+            self.S_inv = S_inv
+            detS = th.logdet(S)
+            print('det: ', detS.max(), detS.min(), detS.mean())
+            exit()
+    
+    @property
+    def featmaps(self):
+        return [self.feat1, self.feat2, self.feat3, self.feat4]
+
+    def reduce_dimension(self, f):
+        return f[:, self.rand_dims, ...]
+
+    def fuse_feats(self, featmaps, stages=[0, 1, 2]):
+        target_size = featmaps[0].size()[-2:]
+        results = []
+        for idx, f in enumerate(featmaps):
+            if idx in stages:
+                #f_resize = F.interpolate(f, size=target_size, mode='nearest')
+                f_resize = F.interpolate(f, size=target_size, mode='bilinear')
+                results.append(f_resize)
+
+        return th.cat(results, dim=1)
+
+    def forward(self, img):
+        te_featmaps, te_feat = self.online_encoder(img)
+
+        te_featmaps = self.fuse_feats(te_featmaps, self.stages)
+        te_featmaps = self.reduce_dimension(te_featmaps)
+        N, C, H, W = te_featmaps.size()
+
+        #with torch.autograd.profiler.profile(use_cuda=True) as prof:
+        with th.no_grad():
+            # N, C, H, W
+            f = te_featmaps - self.reduce_dimension(self.fuse_feats(self.featmaps, self.stages))
+            # H*W, C   H*W, C, C
+            f = f.permute(0, 2, 3, 1)
+            # H*W, 1, 1
+            anoms = f.reshape(N*H*W, 1, C).bmm(self.S_inv.view(H*W, C, C).repeat([N, 1, 1]).bmm(f.reshape(N*H*W, C, 1))).sqrt()
+            anoms = anoms.reshape(N, 1, H, W)
+
+        score = anoms.flatten(1).topk(dim=-1, k=64)[0].mean(-1)
+
+        anoms = F.interpolate(anoms, size=img.size()[-2:], mode='nearest')
+        return anoms[:, 0], score
+

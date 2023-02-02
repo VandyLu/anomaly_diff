@@ -28,7 +28,7 @@ def main():
     )
     model.to(dist_util.dev())
     schedule_sampler = create_named_schedule_sampler(args.schedule_sampler, diffusion)
-
+    
     logger.log("creating data loader...")
     data = load_data(
         data_dir=args.data_dir,
@@ -38,6 +38,11 @@ def main():
         random_flip=False,
         anomaly=True
     )
+    def gen_wrapper(data):
+        while True:
+            yield from data
+    print(data)
+    data = gen_wrapper(data) 
 
     logger.log("training...")
     TrainLoop(

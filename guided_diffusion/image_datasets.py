@@ -4,6 +4,7 @@ import random
 from PIL import Image
 import blobfile as bf
 from mpi4py import MPI
+import os
 import numpy as np
 from torch.utils.data import DataLoader, Dataset
 
@@ -80,11 +81,11 @@ def load_data(
         loader = DataLoader(
             dataset, batch_size=batch_size, shuffle=True, num_workers=1, drop_last=True
         )
-    if not infinte_loop:
-        yield from loader
-    else:
-        while True:
-            yield from loader
+    # if not infinte_loop:
+    return loader
+    # else:
+        # while True:
+            # yield from loader
 
 
 def _list_image_files_recursively(data_dir):
@@ -180,12 +181,14 @@ class AnomalyImageDataset(ImageDataset):
             mask = mask[:, ::-1]
 
         arr = arr.astype(np.float32) / 127.5 - 1
+        # arr = (arr.astype(np.float32)/255.0 - np.array([0.485, 0.456, 0.406], dtype=np.float32)) / np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
         out_dict = {}
         if self.local_classes is not None:
             out_dict["y"] = np.array(self.local_classes[idx], dtype=np.int64)
 
         out_dict["anom_gt"] = np.array(self.anom_gt[idx], dtype=np.int64)
+        out_dict["img_path"] = '_'.join(path.split('/')[-2:])
 
         return np.transpose(arr, [2, 0, 1]), mask, out_dict
 

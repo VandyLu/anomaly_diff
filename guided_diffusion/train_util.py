@@ -187,6 +187,8 @@ class TrainLoop:
             #     cv2.imwrite('test_{:08d}.png'.format(i), img_i)
             #     print('saved to ', i)
 
+            cond.pop('img_path')
+
             micro = batch[i : i + self.microbatch].to(dist_util.dev())
             micro_cond = {
                 k: v[i : i + self.microbatch].to(dist_util.dev())
