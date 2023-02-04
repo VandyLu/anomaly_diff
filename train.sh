@@ -1,8 +1,8 @@
 
-export PYTHONUSERBASE=/newdata/fanbinlu/lib/anomaly
-export OPAL_PREFIX=/newdata/fanbinlu/openmpi-4.1.4/openmpi_dir/
-export PATH=$PATH:$OPAL_PREFIX/bin
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$OPAL_PREFIX/lib
+# export PYTHONUSERBASE=/newdata/fanbinlu/lib/anomaly
+# export OPAL_PREFIX=/newdata/fanbinlu/openmpi-4.1.4/openmpi_dir/
+# export PATH=$PATH:$OPAL_PREFIX/bin
+# export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$OPAL_PREFIX/lib
 
 MODEL_FLAGS="--image_size 128 --num_channels 128 --num_res_blocks 3 --learn_sigma True --resblock_updown True --use_scale_shift_norm True"
 DIFFUSION_FLAGS="--diffusion_steps 1000 --noise_schedule linear"
@@ -29,7 +29,7 @@ export OPENAI_LOGDIR=./work_dirs/${name}_64_2gpu
 # exit
 # for name in "bottle" "wood" "toothbrush" "carpet" "grid" "leather" "metal_nut" "screw" "tile" "transistor" "zipper"
 # for name in "metal_nut" "screw" "tile" "transistor" "carpet" "leather" 
-for name in "capsule"
+for name in "transistor"
 do 
 	echo $name
 	# export OPENAI_LOGDIR=./work_dirs/${name}_128_2gpu

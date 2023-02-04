@@ -873,7 +873,7 @@ class GaussianDiffusion:
         vb_map = []
         xstart_mse = []
         mse = []
-        for t in list(range(self.num_timesteps))[::-1][-3:]:
+        for t in list(range(self.num_timesteps))[::-1][-8:]:
             out_list = []
             for i in range(5):
                 t_batch = th.tensor([t] * batch_size, device=device)
@@ -897,7 +897,7 @@ class GaussianDiffusion:
             eps = self._predict_eps_from_xstart(x_t, t_batch, out["pred_xstart"])
             mse.append(mean_flat((eps - noise) ** 2))
 
-            if t < 5:
+            if t < 8:
             # if t % 20 == 0:
                 # x0 = (th.clip((out["pred_xstart"].cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
                 # xt = (th.clip((x_t.cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
@@ -910,7 +910,9 @@ class GaussianDiffusion:
                 # cv2.imwrite('./img_{:04d}_{:04d}_eps.jpg'.format(self.id, t), eps_vis)
                 # cv2.imwrite('./img_{:04d}_{:04d}_eps_error.jpg'.format(self.id, t), eps_err_vis)
                 # cv2.imwrite('./img_{:04d}_{:04d}_eps_error.jpg'.format(self.id, t), xt)
-                vb_vis = (out["nll_map"] * 10).cpu().permute(0, 2, 3, 1).sum(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
+                mean, std = out["nll_map"].mean(), out["nll_map"].std()
+                vb_vis = (out["nll_map"] * 20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
+                # vb_vis = ((out["nll_map"] - mean)/std*120+120).cpu().permute(0, 2, 3, 1).sum(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
                 cv2.imwrite('./img_{:04d}_{:04d}_vbvis.jpg'.format(self.id, t), vb_vis)
                 
 
@@ -1063,9 +1065,6 @@ class Padim(th.nn.Module):
             S_inv = th.inverse(S)
             self.S = S
             self.S_inv = S_inv
-            detS = th.logdet(S)
-            print('det: ', detS.max(), detS.min(), detS.mean())
-            exit()
     
     @property
     def featmaps(self):
