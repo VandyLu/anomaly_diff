@@ -4,8 +4,10 @@ Approximate the bits/dimension for an image model.
 
 import argparse
 import os
+import cv2
 
 import torch as th
+import torch.nn.functional as F
 import numpy as np
 import torch.distributed as dist
 
@@ -35,12 +37,22 @@ def main():
     )
     model.to(dist_util.dev())
     model.eval()
+    logger.log("creating padim train data loader...")
+    data_train = load_data(
+        data_dir=args.train_data_dir,
+        batch_size=1,
+        image_size=224,
+        class_cond=False,
+        random_flip=False,
+        anomaly=True,
+        infinte_loop=False,
+    )
 
     logger.log("creating data loader...")
     data = load_data(
         data_dir=args.data_dir,
         batch_size=args.batch_size,
-        image_size=args.image_size,
+        image_size=224,
         class_cond=args.class_cond,
         deterministic=True,
         random_flip=False,
@@ -48,17 +60,24 @@ def main():
         infinte_loop=False,
     )
 
+    logger.log("train padim...")
+    from guided_diffusion.gaussian_diffusion import Padim
+    padim = Padim()
+    padim.eval()
+    padim.train_padim(data_train)
+
     logger.log("evaluating...")
-    run_bpd_evaluation(model, diffusion, data, args.num_samples, args.clip_denoised)
+    run_anomaly_evaluation(model, padim, diffusion, data, args.num_samples, args.clip_denoised, args)
 
 
-def run_bpd_evaluation(model, diffusion, data, num_samples, clip_denoised):
+def run_anomaly_evaluation(model, padim, diffusion, data, num_samples, clip_denoised, args):
     all_bpd = []
     all_metrics = {"vb": [], "mse": [], "xstart_mse": []}
     num_complete = 0
     anom_metrics = {'roc': []}
     labels = []
     scores = []
+
     pred_masks = []
     gt_masks = []
     img_paths = []
@@ -66,39 +85,58 @@ def run_bpd_evaluation(model, diffusion, data, num_samples, clip_denoised):
     for batch, gt_mask, model_kwargs in data:
         anom_gt = model_kwargs.pop('anom_gt')
         img_path = model_kwargs.pop('img_path')
+        print(img_path)
+        # idx += 1
+        # if idx > 10:
+        #     break
+
+        # save ground truth
         labels.append(anom_gt)
         gt_masks.append(gt_mask)
         img_paths.extend(img_path)
 
+        # diffusion results
         batch = batch.to(dist_util.dev())
         model_kwargs = {k: v.to(dist_util.dev()) for k, v in model_kwargs.items()}
         minibatch_metrics = diffusion.calc_bpd_loop(
             model, batch, clip_denoised=clip_denoised, model_kwargs=model_kwargs
         )
-        scores.append(minibatch_metrics['total_bpd'])
-        pred_masks.append(minibatch_metrics['pred_mask'])
+        # diff_masks.append(minibatch_metrics['pred_mask'])
+        diff_mask = minibatch_metrics['pred_mask']
 
-        for key, term_list in all_metrics.items():
-            terms = minibatch_metrics[key].mean(dim=0) / dist.get_world_size()
-            dist.all_reduce(terms)
-            term_list.append(terms.detach().cpu().numpy())
+        # padim results
+        feat_mask = padim(batch)
+        feat_mask = feat_mask[:, 0]
+        diff_mask = F.interpolate(diff_mask, size=feat_mask.shape[-2:], mode='bilinear')
+        diff_mask = diff_mask[:, 0]
+        
+        pred_mask = feat_mask + diff_mask * args.alpha_factor
+        if args.smooth:
+            pred_mask = smooth_result(pred_mask)
+        pred_score = padim.get_score(pred_mask)
 
-        total_bpd = minibatch_metrics["total_bpd"]
-        total_bpd = total_bpd.mean() / dist.get_world_size()
-        dist.all_reduce(total_bpd)
-        all_bpd.append(total_bpd.item())
-        num_complete += dist.get_world_size() * batch.shape[0]
+        # save results
+        scores.append(pred_score)    
+        pred_masks.append(pred_mask)
 
-        logger.log(f"done {num_complete} samples: bpd={total_bpd.item()}")
+        for i, path in enumerate(img_path):
+            origin_img_vis = ((batch[i] + 1) * 127.5).clip(0, 255).permute(1, 2, 0).detach().cpu().numpy()[..., ::-1].astype(np.uint8)
+            pred_mask_vis = (5*pred_mask[i]).clip(0, 255).detach().cpu().numpy()
+            diff_mask_vis = (5*diff_mask[i]).clip(0, 255).detach().cpu().numpy()
+            feat_mask_vis = (5*feat_mask[i]).clip(0, 255).detach().cpu().numpy()
+            cv2.imwrite('./visual/' + path, origin_img_vis)
+            cv2.imwrite('./visual/' + path.replace('.png', '_pred.png'), pred_mask_vis)
+            cv2.imwrite('./visual/' + path.replace('.png', '_diff.png'), diff_mask_vis)
+            cv2.imwrite('./visual/' + path.replace('.png', '_feat.png'), feat_mask_vis)
+
     
     if dist.get_rank() == 0:
         labels = th.cat(labels, dim=0)
         scores = th.cat(scores, dim=0)
         roc = evaluate(labels, scores, metric='roc')
         print('roc: ', roc)
-        print(len(img_paths))
-        for i in range(len(img_paths)):
-            np.savez(img_paths[i], pred_masks[i].cpu().numpy())
+        # for i in range(len(img_paths)):
+            # np.savez(img_paths[i], pred_masks[i].cpu().numpy())
         gt_masks = (th.cat(gt_masks, dim=0)/255).long()
         pred_masks = th.cat(pred_masks, dim=0)
         pro = evaluate(gt_masks, pred_masks, metric='pro')
@@ -106,19 +144,26 @@ def run_bpd_evaluation(model, diffusion, data, num_samples, clip_denoised):
         pproc = evaluate(gt_masks, pred_masks, metric='perpixel_roc')
         print('pproc: ', pproc)
 
-    if dist.get_rank() == 0:
-        for name, terms in all_metrics.items():
-            out_path = os.path.join(logger.get_dir(), f"{name}_terms.npz")
-            logger.log(f"saving {name} terms to {out_path}")
-            np.savez(out_path, np.mean(np.stack(terms), axis=0))
+    # if dist.get_rank() == 0:
+        # for name, terms in all_metrics.items():
+            # out_path = os.path.join(logger.get_dir(), f"{name}_terms.npz")
+            # logger.log(f"saving {name} terms to {out_path}")
+            # np.savez(out_path, np.mean(np.stack(terms), axis=0))
 
     dist.barrier()
     logger.log("evaluation complete")
 
+def smooth_result(preds):
+    results = []
+    for i in range(preds.shape[0]):
+        results.append(cv2.GaussianBlur(preds[i].cpu().numpy(), (15, 15), 4.0))
+    results = np.array(results)
+    return th.from_numpy(results)
 
 def create_argparser():
     defaults = dict(
-        data_dir="", clip_denoised=True, num_samples=1000, batch_size=1, model_path=""
+        data_dir="", train_data_dir="", clip_denoised=True, num_samples=1000, batch_size=1,
+        model_path="", alpha_factor=1.0, smooth=False,
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

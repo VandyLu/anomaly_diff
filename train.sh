@@ -8,9 +8,9 @@ MODEL_FLAGS="--image_size 128 --num_channels 128 --num_res_blocks 3 --learn_sigm
 DIFFUSION_FLAGS="--diffusion_steps 1000 --noise_schedule linear"
 TRAIN_FLAGS="--lr 1e-4 --batch_size 4 --save_interval 500 --lr_anneal_steps 2500 --ema_rate 0.995"
 
-MODEL_FLAGS="--image_size 64 --num_channels 128 --num_res_blocks 3 --learn_sigma True --resblock_updown True --use_scale_shift_norm True"
-DIFFUSION_FLAGS="--diffusion_steps 1000 --noise_schedule linear"
-TRAIN_FLAGS="--lr 1e-4 --batch_size 8 --save_interval 500 --lr_anneal_steps 2500 --ema_rate 0.995"
+# MODEL_FLAGS="--image_size 64 --num_channels 128 --num_res_blocks 3 --learn_sigma True --resblock_updown True --use_scale_shift_norm True"
+# DIFFUSION_FLAGS="--diffusion_steps 1000 --noise_schedule linear"
+# TRAIN_FLAGS="--lr 1e-4 --batch_size 8 --save_interval 500 --lr_anneal_steps 2500 --ema_rate 0.995"
 
 # python ./scripts/image_train.py --data_dir './data/MVTecAD/cable/train/' \
 
@@ -20,13 +20,14 @@ name=toothbrush
 name=grid
 name=zipper
 name=transistor
+name=capsule
 
 export NCCL_P2P_DISABLE=1
-export OPENAI_LOGDIR=./work_dirs/${name}_64_2gpu
-# mpiexec --oversubscribe -n 2 python ./scripts/image_train.py --data_dir ./data/MVTecAD/$name/train/ \
-# 		$MODEL_FLAGS $DIFFUSION_FLAGS $TRAIN_FLAGS
+export OPENAI_LOGDIR=./work_dirs/${name}_128_samevar_2gpu
+mpiexec --oversubscribe -n 2 python ./scripts/image_train.py --data_dir ./data/MVTecAD/$name/train/ \
+		$MODEL_FLAGS $DIFFUSION_FLAGS $TRAIN_FLAGS
 
-# exit
+exit
 # for name in "bottle" "wood" "toothbrush" "carpet" "grid" "leather" "metal_nut" "screw" "tile" "transistor" "zipper"
 # for name in "metal_nut" "screw" "tile" "transistor" "carpet" "leather" 
 for name in "transistor"
