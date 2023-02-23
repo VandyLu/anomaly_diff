@@ -41,9 +41,10 @@ def main():
     data_train = load_data(
         data_dir=args.train_data_dir,
         batch_size=1,
-        image_size=224,
+        image_size=256,
         class_cond=False,
         random_flip=False,
+        random_rotate=False,
         anomaly=True,
         infinte_loop=False,
     )
@@ -52,19 +53,21 @@ def main():
     data = load_data(
         data_dir=args.data_dir,
         batch_size=args.batch_size,
-        image_size=224,
+        image_size=256,
         class_cond=args.class_cond,
         deterministic=True,
         random_flip=False,
+        random_rotate=False,
         anomaly=True,
         infinte_loop=False,
     )
 
     logger.log("train padim...")
     from guided_diffusion.gaussian_diffusion import Padim
-    padim = Padim()
+    padim = Padim(256)
     padim.eval()
-    padim.train_padim(data_train)
+    if args.use_padim:
+        padim.train_padim(data_train, 1.0, 0)
 
     logger.log("evaluating...")
     run_anomaly_evaluation(model, padim, diffusion, data, args.num_samples, args.clip_denoised, args)
@@ -98,15 +101,28 @@ def run_anomaly_evaluation(model, padim, diffusion, data, num_samples, clip_deno
         # diffusion results
         batch = batch.to(dist_util.dev())
         model_kwargs = {k: v.to(dist_util.dev()) for k, v in model_kwargs.items()}
+        # model_kwargs['x_target'] = batch
+        model_kwargs['diffusion_model'] = diffusion
+
+        cond_fn = diffusion.feat_cond_fn
+        model_kwargs['feature_extractor'] = diffusion.feature_extractor
+        def model_fn(x, t, y=None, feature_extractor=None, x_target=None, diffusion_model=None):
+            return model(x, t, None)
+
         minibatch_metrics = diffusion.calc_bpd_loop(
-            model, batch, clip_denoised=clip_denoised, model_kwargs=model_kwargs
+            model_fn, batch, clip_denoised=clip_denoised, model_kwargs=model_kwargs
         )
         # diff_masks.append(minibatch_metrics['pred_mask'])
         diff_mask = minibatch_metrics['pred_mask']
 
         # padim results
-        feat_mask = padim(batch)
+        if args.use_padim:
+            with th.no_grad():
+                feat_mask = padim(batch)
+        else:
+            feat_mask = th.zeros_like(diff_mask)
         feat_mask = feat_mask[:, 0]
+        print(feat_mask.max())
         diff_mask = F.interpolate(diff_mask, size=feat_mask.shape[-2:], mode='bilinear')
         diff_mask = diff_mask[:, 0]
         
@@ -124,10 +140,10 @@ def run_anomaly_evaluation(model, padim, diffusion, data, num_samples, clip_deno
             pred_mask_vis = (5*pred_mask[i]).clip(0, 255).detach().cpu().numpy()
             diff_mask_vis = (5*diff_mask[i]).clip(0, 255).detach().cpu().numpy()
             feat_mask_vis = (5*feat_mask[i]).clip(0, 255).detach().cpu().numpy()
-            cv2.imwrite('./visual/' + path, origin_img_vis)
-            cv2.imwrite('./visual/' + path.replace('.png', '_pred.png'), pred_mask_vis)
-            cv2.imwrite('./visual/' + path.replace('.png', '_diff.png'), diff_mask_vis)
-            cv2.imwrite('./visual/' + path.replace('.png', '_feat.png'), feat_mask_vis)
+            cv2.imwrite(args.visual_dir + path, origin_img_vis)
+            cv2.imwrite(args.visual_dir + path.replace('.png', '_pred.png'), pred_mask_vis)
+            cv2.imwrite(args.visual_dir + path.replace('.png', '_diff.png'), diff_mask_vis)
+            cv2.imwrite(args.visual_dir + path.replace('.png', '_feat.png'), feat_mask_vis)
 
     
     if dist.get_rank() == 0:
@@ -163,7 +179,7 @@ def smooth_result(preds):
 def create_argparser():
     defaults = dict(
         data_dir="", train_data_dir="", clip_denoised=True, num_samples=1000, batch_size=1,
-        model_path="", alpha_factor=1.0, smooth=False,
+        model_path="", alpha_factor=1.0, smooth=False, visual_dir="", use_padim=False,
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

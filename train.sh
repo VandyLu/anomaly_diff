@@ -8,9 +8,9 @@ MODEL_FLAGS="--image_size 128 --num_channels 128 --num_res_blocks 3 --learn_sigm
 DIFFUSION_FLAGS="--diffusion_steps 1000 --noise_schedule linear"
 TRAIN_FLAGS="--lr 1e-4 --batch_size 4 --save_interval 500 --lr_anneal_steps 2500 --ema_rate 0.995"
 
-# MODEL_FLAGS="--image_size 64 --num_channels 128 --num_res_blocks 3 --learn_sigma True --resblock_updown True --use_scale_shift_norm True"
-# DIFFUSION_FLAGS="--diffusion_steps 1000 --noise_schedule linear"
-# TRAIN_FLAGS="--lr 1e-4 --batch_size 8 --save_interval 500 --lr_anneal_steps 2500 --ema_rate 0.995"
+MODEL_FLAGS="--image_size 256 --num_channels 128 --num_res_blocks 3 --learn_sigma True --resblock_updown True --use_scale_shift_norm True"
+DIFFUSION_FLAGS="--diffusion_steps 1000 --noise_schedule linear"
+TRAIN_FLAGS="--lr 1e-4 --batch_size 4 --save_interval 5000 --lr_anneal_steps 10000 --ema_rate 0.995"
 
 # python ./scripts/image_train.py --data_dir './data/MVTecAD/cable/train/' \
 
@@ -20,24 +20,36 @@ name=toothbrush
 name=grid
 name=zipper
 name=transistor
+name=hazelnut
 name=capsule
 
 export NCCL_P2P_DISABLE=1
-export OPENAI_LOGDIR=./work_dirs/${name}_128_samevar_2gpu
-mpiexec --oversubscribe -n 2 python ./scripts/image_train.py --data_dir ./data/MVTecAD/$name/train/ \
-		$MODEL_FLAGS $DIFFUSION_FLAGS $TRAIN_FLAGS
+export OPENAI_LOGDIR=./work_dirs/${name}_256_2gpu
+# mpiexec --oversubscribe -n 2 python ./scripts/image_train.py --data_dir ./data/MVTecAD/$name/train/ \
+# 		$MODEL_FLAGS $DIFFUSION_FLAGS $TRAIN_FLAGS
 
-exit
-# for name in "bottle" "wood" "toothbrush" "carpet" "grid" "leather" "metal_nut" "screw" "tile" "transistor" "zipper"
-# for name in "metal_nut" "screw" "tile" "transistor" "carpet" "leather" 
-for name in "transistor"
+# exit
+# for name in "transistor"
+# for name in "cable" "pill" "bottle" "wood" "toothbrush" "carpet" "grid" "leather" "metal_nut" "screw" "tile" "transistor" "zipper" 
+for name in  "bottle" "cable" "capsule" "carpet" "grid" "hazelnut" "leather" "metal_nut" "pill"  "screw" "tile" "toothbrush" "transistor" "wood" "zipper" 
 do 
 	echo $name
 	# export OPENAI_LOGDIR=./work_dirs/${name}_128_2gpu
-	export OPENAI_LOGDIR=./work_dirs/${name}_64_2gpu
+	export OPENAI_LOGDIR=./work_dirs/${name}_256_10k_2gpu
 	mpiexec --oversubscribe -n 2 python ./scripts/image_train.py --data_dir ./data/MVTecAD/$name/train/ \
 		$MODEL_FLAGS $DIFFUSION_FLAGS $TRAIN_FLAGS
+
+	# mkdir visual
 	
+	# model=work_dirs/${name}_128_rot5_2gpu/ema_0.995_002500.pt
+
+	# python ./scripts/image_anomaly.py --model_path $model \
+	# $MODEL_FLAGS $DIFFUSION_FLAGS --timestep_respacing 100 --num_samples 100 \
+	# --data_dir ./data/MVTecAD/${name}/test/ --train_data_dir ./data/MVTecAD/${name}/train/ \
+	# --alpha_factor 1.0 --smooth True > result_${name}_rot5_smooth.txt
+	
+	# mv visual visual_rot5_${name}
+	# mv *.pdf visual_rot5_${name}
 	# model=work_dirs/${name}_5k_2gpu/ema_0.995_005000.pt
 	# python ./scripts/image_anomaly.py --model_path $model \
 	# 	$MODEL_FLAGS $DIFFUSION_FLAGS --timestep_respacing 100 --num_samples 100 \

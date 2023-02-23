@@ -18,21 +18,30 @@ name=pill
 name=hazelnut
 name=cable
 
+# for name in  "bottle" "cable" "capsule" "carpet" "grid" "hazelnut" "leather" "metal_nut" "pill"  "screw" "tile" "toothbrush" "transistor" "wood" "zipper" 
+for name in "cable"
+do
+	# cat result_${name}_rot5_smooth.txt |grep pro |head -n 1 
+	# echo $name
+	python ./scripts/padim.py --data_dir ./data/MVTecAD/$name/test/combined/ --train_data_dir ./data/MVTecAD/$name/train 
+done
+exit
+
 export NCCL_P2P_DISABLE=1
 export OPENAI_LOGDIR=./work_dirs/${name}_128_2gpu
-for name in "capsule"
-# for name in "cable" "capsule" "pill" "bottle" "wood" "toothbrush" "carpet" "grid" "leather" "metal_nut" "screw" "tile" "transistor" "zipper" "hazelnut"
+# for name in "capsule"
+for name in "cable" "capsule" "pill" "bottle" "wood" "toothbrush" "carpet" "grid" "leather" "metal_nut" "screw" "tile" "transistor" "zipper" "hazelnut"
 do
 	echo $name
-	python ./scripts/padim.py --data_dir ./data/MVTecAD/$name/test/ --train_data_dir ./data/MVTecAD/$name/train 
+	python ./scripts/padim.py --data_dir ./data/MVTecAD/$name/test/ --train_data_dir ./data/MVTecAD/$name/train > padim_${name}.txt
 done
 
 exit
-# for name in "bottle" "wood" "toothbrush" "carpet" "grid" "leather" "metal_nut" "screw" "tile" "transistor" "zipper"
-for name in "capsule"
+for name in "bottle" "wood" "toothbrush" "carpet" "grid" "leather" "metal_nut" "screw" "tile" "transistor" "zipper"
+# for name in "capsule"
 do 
 	echo $name
-	export OPENAI_LOGDIR=./work_dirs/${name}_5k_2gpu
+	# export OPENAI_LOGDIR=./work_dirs/${name}_5k_2gpu
 	mpiexec -n 2 python ./scripts/image_train.py --data_dir ./data/MVTecAD/$name/train/ \
 		$MODEL_FLAGS $DIFFUSION_FLAGS $TRAIN_FLAGS
 	

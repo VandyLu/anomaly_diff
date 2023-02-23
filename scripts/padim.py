@@ -30,51 +30,115 @@ def main():
     data_test = load_data(
         data_dir=args.data_dir,
         batch_size=args.batch_size,
-        image_size=224,
+        image_size=256,
         class_cond=False,
         random_flip=False,
+        random_rotate=False,
         anomaly=True,
         infinte_loop=False,
     )
     data_train = load_data(
         data_dir=args.train_data_dir,
         batch_size=1,
-        image_size=224,
+        image_size=256,
         class_cond=False,
         random_flip=False,
+        random_rotate=False,
         anomaly=True,
         infinte_loop=False,
     )
     from guided_diffusion.gaussian_diffusion import Padim
-    padim = Padim()
-    padim.eval()
-    padim.train_padim(data_train)
 
     anom_metrics = {'roc': []}
-    raw_imgs = []
-    labels = []
-    scores = []
-    pred_masks = []
-    gt_masks = []
-    img_paths = []
 
-    for data in data_test:
-        img, gt_mask, model_kwargs = data
+    results = dict()
 
-        anom_gt = model_kwargs.pop('anom_gt')
-        img_path = model_kwargs.pop('img_path')
-        labels.append(anom_gt)
-        gt_masks.append(gt_mask)
-        img_paths.extend(img_path)
 
-        img = img.cuda()
-        anoms, score = padim(img)
+    # noises definition
+    beta_start, beta_end = 0.0001, 0.02
+    betas = np.linspace(beta_start, beta_end, 1000, dtype=np.float64)
+    alphas = 1.0 - betas
+    alphas_cumprod = np.cumprod(alphas, axis=0)
 
-        # print(img_path, anom_gt, score)
+    noise_scale = alphas_cumprod[::50][:5] # first 100 steps
+    noise_scale = np.array([1.0, *noise_scale], dtype=np.float64)
+    noise_scale = np.array([1.0], dtype=np.float64)
 
-        scores.append(score)
-        pred_masks.append(anoms)
-        raw_imgs.append(img)
+    with th.no_grad():
+        for idx, scale in enumerate(noise_scale):
+            print('idx: {} | scale: {}'.format(idx, scale))
+            padim = Padim(256)
+            padim.eval()
+
+            # noise = th.zeros((1, 3, 224, 224)).cuda()
+            noise = 0
+            # noise = th.randn((1, 3, 224, 224)).cuda()
+            alpha_bar_t = scale
+
+            padim.train_padim(data_train, scale, noise)
+            print('finish padim train...')
+            raw_imgs = []
+            labels = []
+            gt_masks = []
+            img_paths = []
+            scores = []
+            pred_masks = []
+
+            for data in data_test:
+                img, gt_mask, model_kwargs = data
+
+                anom_gt = model_kwargs.pop('anom_gt')
+                img_path = model_kwargs.pop('img_path')
+                # if idx == 0:
+                labels.append(anom_gt)
+                gt_masks.append(gt_mask)
+                img_paths.extend(img_path)
+                raw_imgs.append(img)
+
+                img = img.cuda()
+
+                img_noisy = np.sqrt(alpha_bar_t) * img + np.sqrt(1.0 - alpha_bar_t) * noise
+
+                anoms = padim(img_noisy)
+                anoms = anoms[:, 0]
+                score = padim.get_score(anoms)
+
+                # print(img_path, anom_gt, score)
+                img_path = img_path[0]
+                if img_path not in results.keys():
+                    results[img_path] = anoms.detach() * scale
+                else:
+                    results[img_path] += anoms.detach() * scale
+
+                scores.append(score)
+                pred_masks.append(anoms)
+
+            labels_eval = th.cat(labels, dim=0).long()
+            scores = th.cat(scores, dim=0)
+            roc = evaluate(labels_eval, scores, metric='roc')
+            print('idx: ', idx, 'roc: ', roc)
+            gt_masks_eval = (th.cat(gt_masks, dim=0)/255).long()
+            pred_masks = th.cat(pred_masks, dim=0)
+
+            pred_masks = smooth_result(pred_masks)
+            pro = evaluate(gt_masks_eval, pred_masks, metric='pro')
+            print('idx: ', idx, 'pro: ', pro)
+            pproc = evaluate(gt_masks_eval, pred_masks, metric='perpixel_roc')
+            print('idx: ', idx, 'pproc: ', pproc)
+
+            for i in range(len(img_paths)):
+                name = img_paths[i]
+                # img = raw_imgs[i].permute(0, 2, 3, 1).cpu().numpy()[0] * np.array([0.229, 0.224, 0.225], dtype=np.float32) + np.array([0.485, 0.456, 0.406], dtype=np.float32)
+                img = (raw_imgs[i].permute(0, 2, 3, 1).cpu().numpy()[0] + 1.0) / 2.0
+                img = (img * 255).astype(np.uint8)
+                result = ((pred_masks[i].cpu() * 3).clamp(0, 255).numpy()).astype(np.uint8)
+
+                cv2.imwrite(name, img[:, :, ::-1])
+                cv2.imwrite(name.replace('.png', '_pred.png'), result)
+            # exit()
+
+    pred_masks = [results[fname] / len(noise_scale) for fname in img_paths]
+    scores = [padim.get_score(mask) for mask in pred_masks]
 
     if dist.get_rank() == 0:
         labels = th.cat(labels, dim=0).long()
@@ -85,14 +149,6 @@ def main():
         pred_masks = th.cat(pred_masks, dim=0)
 
         pred_masks = smooth_result(pred_masks)
-        diff_masks = []
-        for i in range(len(img_paths)):
-            diff = np.load(img_paths[i] + '.npz')['arr_0'][0] # 1, 128, 128
-            diff = th.from_numpy(cv2.resize(diff, (224, 224))).float().cuda()
-            diff_masks.append(diff)
-        diff_masks = th.stack(diff_masks, dim=0)
-        diff_masks = smooth_result(diff_masks)
-        pred_masks = diff_masks * 5 + pred_masks
         pro = evaluate(gt_masks, pred_masks, metric='pro')
         print('pro: ', pro)
         pproc = evaluate(gt_masks, pred_masks, metric='perpixel_roc')

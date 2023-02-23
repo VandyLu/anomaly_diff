@@ -18,6 +18,7 @@ def load_data(
     deterministic=False,
     random_crop=False,
     random_flip=True,
+    random_rotate=True,
     anomaly=False,
     infinte_loop=True,
 ):
@@ -72,6 +73,7 @@ def load_data(
         num_shards=MPI.COMM_WORLD.Get_size(),
         random_crop=random_crop,
         random_flip=random_flip,
+        random_rotate=random_rotate,
     )
     if deterministic:
         loader = DataLoader(
@@ -151,11 +153,13 @@ class AnomalyImageDataset(ImageDataset):
         image_paths,
         anom_gt,
         gt_mask_path,
+        random_rotate,
         **kwargs,
     ):
         super().__init__(resolution, image_paths, **kwargs)
         self.anom_gt = anom_gt
         self.gt_mask_path = gt_mask_path
+        self.random_rotate = random_rotate
 
     def __getitem__(self, idx):
         path = self.local_images[idx]
@@ -179,6 +183,10 @@ class AnomalyImageDataset(ImageDataset):
         if self.random_flip and random.random() < 0.5:
             arr = arr[:, ::-1]
             mask = mask[:, ::-1]
+        if self.random_rotate:
+            ang = (random.random() - 0.5) * 10.0 # / 180.0 * np.pi
+            pil_image = pil_image.rotate(ang, Image.BILINEAR, expand = False)
+            pil_mask = pil_mask.rotate(ang, Image.BILINEAR, expand = False)
 
         arr = arr.astype(np.float32) / 127.5 - 1
         # arr = (arr.astype(np.float32)/255.0 - np.array([0.485, 0.456, 0.406], dtype=np.float32)) / np.array([0.229, 0.224, 0.225], dtype=np.float32)
