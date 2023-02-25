@@ -41,7 +41,7 @@ def main():
     data_train = load_data(
         data_dir=args.train_data_dir,
         batch_size=1,
-        image_size=256,
+        image_size=args.image_size,
         class_cond=False,
         random_flip=False,
         random_rotate=False,
@@ -53,7 +53,7 @@ def main():
     data = load_data(
         data_dir=args.data_dir,
         batch_size=args.batch_size,
-        image_size=256,
+        image_size=args.image_size,
         class_cond=args.class_cond,
         deterministic=True,
         random_flip=False,
@@ -64,7 +64,7 @@ def main():
 
     logger.log("train padim...")
     from guided_diffusion.gaussian_diffusion import Padim
-    padim = Padim(256)
+    padim = Padim(args.image_size)
     padim.eval()
     if args.use_padim:
         padim.train_padim(data_train, 1.0, 0)

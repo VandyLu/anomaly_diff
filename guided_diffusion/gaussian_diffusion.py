@@ -211,7 +211,7 @@ class GaussianDiffusion:
                 grad = th.autograd.grad(loss, x_in)[0] * (-50000) * 1
                 # negative, minimize mse loss
                 # return -10 * t.float() * grad
-                grad2 = -(x-x_target) * 0.05
+                grad2 = -(x-x_target) * 0.00
                 print(grad.abs().mean(), grad2.abs().mean())
                 return grad + grad2 
 
@@ -1002,7 +1002,7 @@ class GaussianDiffusion:
         results = []
         vb_results = []
         with th.no_grad():
-            for t in list(range(self.num_timesteps))[::-1][-120::]:
+            for t in list(range(self.num_timesteps))[::-1][-100::]:
                 
                 t_batch = th.tensor([t] * batch_size, device=device)
 
@@ -1031,12 +1031,13 @@ class GaussianDiffusion:
                 out = merge_list(out_list)
 
                 vb = out['nll_map']
-                vb_results.append(vb)
+                vb_results.append((vb - vb.mean())/vb.std())
 
                 diff = (out["pred_xstart"] - x_start).abs()
                 eps_err = out["eps_err"]
                 # diff = out["diff"] 
-                results.append(diff)
+                # results.append(diff)
+                results.append((diff - diff.mean())/diff.std())
 
                 visual = True
                 if (t <= 5 or t % 30 == 0) and visual:
@@ -1052,10 +1053,6 @@ class GaussianDiffusion:
                     eps_err_vis = (eps_err**2 *127.5* 20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
                     cv2.imwrite('./img_{:04d}_{:04d}_epserr_vis.jpg'.format(self.id, t), eps_err_vis)
 
-                    var_vis = out["log_variance"]
-                    # var_vis = ((var_vis - var_vis.min()/(var_vis.max()-var_vis.min()))*255).detach().cpu().mean(dim=1)[0].numpy().astype(np.uint8)
-                    var_vis = (((var_vis - var_vis.mean()) / var_vis.std()+1)*20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
-                    cv2.imwrite('./img_{:04d}_{:04d}_var_vis.jpg'.format(self.id, t), var_vis)
 
                     vb_vis = out["nll_map"]
                     vb_vis = (((vb_vis - vb_vis.mean()) / vb_vis.std()+1)*20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
@@ -1063,28 +1060,30 @@ class GaussianDiffusion:
                     print(t, vb.mean(), vb.max())
 
                     # result_vis = ((result_vis-result_vis.min())/(result_vis.max()-result_vis.min())*255).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
-                    diff_vis = ((diff**2*127.5*20).mean(1)[0]).clip(0, 255).detach().cpu().numpy().astype(np.uint8)
+                    diff_vis = diff
+                    diff_vis = (((diff_vis - diff_vis.mean()) / diff_vis.std()+1)*20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
                     # diff_vis = ((diff - diff.min())/(diff.max()-diff.min())*255).clip(0, 255).detach().cpu().numpy().astype(np.uint8)
                     cv2.imwrite('./img_{:04d}_{:04d}_diff_vis.jpg'.format(self.id, t), diff_vis)
                     
 
-        vb_map = sum(vb_results)
+        vb_map = sum(vb_results) / len(vb_results)
         diff_map = sum(results) / len(results)
         if visual:
             x0 = (th.clip((x_start.cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
             cv2.imwrite('./img_{:04d}_origin.jpg'.format(self.id), x0)
             # print(vb_map.min(), vb_map.max(), vb_map.mean())
             # vb_map_vis = th.clip((vb_map * 5).cpu().permute(0, 2, 3, 1).sum(-1), 0, 255).numpy()[0].astype(np.uint8)
-            diff_map_vis = th.clip((diff_map**2 * 127.5*20).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
-            vb_map_vis = th.clip((vb_map * 20).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
+            diff_map_vis = th.clip(((diff_map+1)*20).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
+            vb_map_vis = th.clip(((vb_map+1)*20).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
             # vb_map_vis = th.clip(255*(1.0-th.exp(-vb_map)).cpu().permute(0, 2, 3, 1).mean(-1), 0, 255).numpy()[0].astype(np.uint8)
             # vb_map_vis = th.clip(((vb_map - vb_map.min()) /(vb_map.max()-vb_map.min())*255).cpu().permute(0, 2, 3, 1).mean(-1), 0, 255).numpy()[0].astype(np.uint8)
             cv2.imwrite('./img_{:04d}_vbmap.jpg'.format(self.id), vb_map_vis)
             cv2.imwrite('./img_{:04d}_diffmap.jpg'.format(self.id), diff_map_vis)
             self.id += 1
 
-        # pred_mask = vb_map.mean(dim=1, keepdim=True)
-        pred_mask = diff_map.mean(dim=1, keepdim=True) * 60
+        # pred_mask = vb_map.mean(dim=1, keepdim=True) * 10
+        pred_mask = vb_map.mean(dim=1, keepdim=True) 
+        # pred_mask = diff_map.mean(dim=1, keepdim=True) * 10
         print(pred_mask.mean(), pred_mask.max())
         return {
             "pred_mask": pred_mask,
