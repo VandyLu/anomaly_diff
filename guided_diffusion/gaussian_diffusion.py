@@ -1007,12 +1007,10 @@ class GaussianDiffusion:
                 t_batch = th.tensor([t] * batch_size, device=device)
 
                 out_list = []
-                if t <= 5:
-                    repeat = 5
-                else:
-                    repeat = 1
+                repeat = 1
                 for i in range(repeat):
                     noise = th.randn_like(x_start)
+
                     x_t = self.q_sample(x_start=x_start, t=t_batch, noise=noise)
                     # x_t = x_start
                     with th.no_grad():
@@ -1039,8 +1037,8 @@ class GaussianDiffusion:
                 # results.append(diff)
                 results.append((diff - diff.mean())/diff.std())
 
-                visual = True
-                if (t <= 5 or t % 30 == 0) and visual:
+                visual = False
+                if (t <= 5 or t % 10 == 0) and visual:
                 # if visual:
                     if not hasattr(self, 'id'):
                         self.id = 0
@@ -1055,7 +1053,7 @@ class GaussianDiffusion:
 
 
                     vb_vis = out["nll_map"]
-                    vb_vis = (((vb_vis - vb_vis.mean()) / vb_vis.std()+1)*20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
+                    vb_vis = (((vb_vis - vb_vis.mean()) / vb_vis.std()+1)*80).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
                     cv2.imwrite('./img_{:04d}_{:04d}_vb_vis.jpg'.format(self.id, t), vb_vis)
                     print(t, vb.mean(), vb.max())
 
@@ -1074,7 +1072,7 @@ class GaussianDiffusion:
             # print(vb_map.min(), vb_map.max(), vb_map.mean())
             # vb_map_vis = th.clip((vb_map * 5).cpu().permute(0, 2, 3, 1).sum(-1), 0, 255).numpy()[0].astype(np.uint8)
             diff_map_vis = th.clip(((diff_map+1)*20).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
-            vb_map_vis = th.clip(((vb_map+1)*20).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
+            vb_map_vis = th.clip(((vb_map+1)*80).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
             # vb_map_vis = th.clip(255*(1.0-th.exp(-vb_map)).cpu().permute(0, 2, 3, 1).mean(-1), 0, 255).numpy()[0].astype(np.uint8)
             # vb_map_vis = th.clip(((vb_map - vb_map.min()) /(vb_map.max()-vb_map.min())*255).cpu().permute(0, 2, 3, 1).mean(-1), 0, 255).numpy()[0].astype(np.uint8)
             cv2.imwrite('./img_{:04d}_vbmap.jpg'.format(self.id), vb_map_vis)
@@ -1084,7 +1082,7 @@ class GaussianDiffusion:
         # pred_mask = vb_map.mean(dim=1, keepdim=True) * 10
         pred_mask = vb_map.mean(dim=1, keepdim=True) 
         # pred_mask = diff_map.mean(dim=1, keepdim=True) * 10
-        print(pred_mask.mean(), pred_mask.max())
+        # print(pred_mask.mean(), pred_mask.max())
         return {
             "pred_mask": pred_mask,
             'single_masks': results,
@@ -1145,7 +1143,7 @@ class Padim(th.nn.Module):
         self.online_encoder = FeatureExtractor()
         self.rand_dims = th.randperm((256+512+1024)//1)[:500].cuda()
     
-    def train_padim(self, data_loader, alpha_bar_t, noise):
+    def train_padim(self, data_loader):
         
         outputs = []
         with th.no_grad():
@@ -1154,11 +1152,8 @@ class Padim(th.nn.Module):
                 img, mask, _ = data
                 img = img.cuda()
 
-                # noise = th.randn_like(img)
-                img_noisy = np.sqrt(alpha_bar_t) * img + np.sqrt(1.0 - alpha_bar_t) * noise
-
                 idx += 1
-                xl, xg = self.online_encoder(img_noisy)
+                xl, xg = self.online_encoder(img)
 
                 xl = [f.mean(dim=0, keepdim=True) for f in xl]
                     
@@ -1182,15 +1177,12 @@ class Padim(th.nn.Module):
                 img, mask, _ = data
                 img = img.cuda()
 
-                # noise = th.randn_like(img)
-                img_noisy = np.sqrt(alpha_bar_t) * img + np.sqrt(1.0 - alpha_bar_t) * noise
-
                 n_count += img.shape[0]
 
                 if img.size(1) == 1:
                     img = img.expand(-1, 3, -1, -1)
 
-                xl, xg = self.online_encoder(img_noisy)
+                xl, xg = self.online_encoder(img)
 
                 xl = self.fuse_feats(xl, self.stages)
                 fm = self.fuse_feats(self.featmaps, self.stages)

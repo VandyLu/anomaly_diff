@@ -18,12 +18,12 @@ name=pill
 name=hazelnut
 name=cable
 
-# for name in  "bottle" "cable" "capsule" "carpet" "grid" "hazelnut" "leather" "metal_nut" "pill"  "screw" "tile" "toothbrush" "transistor" "wood" "zipper" 
-for name in "cable"
+# for name in "cable"
+for name in  "bottle" "cable" "capsule" "carpet" "grid" "hazelnut" "leather" "metal_nut" "pill"  "screw" "tile" "toothbrush" "transistor" "wood" "zipper" 
 do
 	# cat result_${name}_rot5_smooth.txt |grep pro |head -n 1 
 	# echo $name
-	python ./scripts/padim.py --data_dir ./data/MVTecAD/$name/test/combined/ --train_data_dir ./data/MVTecAD/$name/train 
+	python ./scripts/padim.py --data_dir ./data/MVTecAD/$name/test/ --train_data_dir ./data/MVTecAD/$name/train --category $name
 done
 exit
 
@@ -33,7 +33,7 @@ export OPENAI_LOGDIR=./work_dirs/${name}_128_2gpu
 for name in "cable" "capsule" "pill" "bottle" "wood" "toothbrush" "carpet" "grid" "leather" "metal_nut" "screw" "tile" "transistor" "zipper" "hazelnut"
 do
 	echo $name
-	python ./scripts/padim.py --data_dir ./data/MVTecAD/$name/test/ --train_data_dir ./data/MVTecAD/$name/train > padim_${name}.txt
+	python ./scripts/padim.py --data_dir ./data/MVTecAD/$name/test/ --train_data_dir ./data/MVTecAD/$name/train --category $name
 done
 
 exit

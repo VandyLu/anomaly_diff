@@ -2,6 +2,7 @@
 Approximate the bits/dimension for an image model.
 """
 
+import pickle
 import argparse
 import os
 import cv2
@@ -88,7 +89,6 @@ def run_anomaly_evaluation(model, padim, diffusion, data, num_samples, clip_deno
     for batch, gt_mask, model_kwargs in data:
         anom_gt = model_kwargs.pop('anom_gt')
         img_path = model_kwargs.pop('img_path')
-        print(img_path)
         # idx += 1
         # if idx > 10:
         #     break
@@ -122,7 +122,7 @@ def run_anomaly_evaluation(model, padim, diffusion, data, num_samples, clip_deno
         else:
             feat_mask = th.zeros_like(diff_mask)
         feat_mask = feat_mask[:, 0]
-        print(feat_mask.max())
+        # print(feat_mask.max())
         diff_mask = F.interpolate(diff_mask, size=feat_mask.shape[-2:], mode='bilinear')
         diff_mask = diff_mask[:, 0]
         
@@ -135,16 +135,23 @@ def run_anomaly_evaluation(model, padim, diffusion, data, num_samples, clip_deno
         scores.append(pred_score)    
         pred_masks.append(pred_mask)
 
-        for i, path in enumerate(img_path):
-            origin_img_vis = ((batch[i] + 1) * 127.5).clip(0, 255).permute(1, 2, 0).detach().cpu().numpy()[..., ::-1].astype(np.uint8)
-            pred_mask_vis = (5*pred_mask[i]).clip(0, 255).detach().cpu().numpy()
-            diff_mask_vis = (5*diff_mask[i]).clip(0, 255).detach().cpu().numpy()
-            feat_mask_vis = (5*feat_mask[i]).clip(0, 255).detach().cpu().numpy()
-            cv2.imwrite(args.visual_dir + path, origin_img_vis)
-            cv2.imwrite(args.visual_dir + path.replace('.png', '_pred.png'), pred_mask_vis)
-            cv2.imwrite(args.visual_dir + path.replace('.png', '_diff.png'), diff_mask_vis)
-            cv2.imwrite(args.visual_dir + path.replace('.png', '_feat.png'), feat_mask_vis)
+        # for i, path in enumerate(img_path):
+        #     origin_img_vis = ((batch[i] + 1) * 127.5).clip(0, 255).permute(1, 2, 0).detach().cpu().numpy()[..., ::-1].astype(np.uint8)
+        #     pred_mask_vis = (5*pred_mask[i]).clip(0, 255).detach().cpu().numpy()
+        #     diff_mask_vis = (5*diff_mask[i]).clip(0, 255).detach().cpu().numpy()
+        #     feat_mask_vis = (5*feat_mask[i]).clip(0, 255).detach().cpu().numpy()
+        #     cv2.imwrite(args.visual_dir + path, origin_img_vis)
+        #     cv2.imwrite(args.visual_dir + path.replace('.png', '_pred.png'), pred_mask_vis)
+        #     cv2.imwrite(args.visual_dir + path.replace('.png', '_diff.png'), diff_mask_vis)
+        #     cv2.imwrite(args.visual_dir + path.replace('.png', '_feat.png'), feat_mask_vis)
 
+    if dist.get_rank() == 0:
+        result = dict()
+        result['names'] = img_paths
+        result['preds'] = pred_masks
+        result['masks'] = gt_masks
+        with open('result_diff_{}.pkl'.format(args.category), 'wb') as f:
+            pickle.dump(result, f)
     
     if dist.get_rank() == 0:
         labels = th.cat(labels, dim=0)
@@ -179,7 +186,7 @@ def smooth_result(preds):
 def create_argparser():
     defaults = dict(
         data_dir="", train_data_dir="", clip_denoised=True, num_samples=1000, batch_size=1,
-        model_path="", alpha_factor=1.0, smooth=False, visual_dir="", use_padim=False,
+        model_path="", alpha_factor=1.0, smooth=False, visual_dir="", use_padim=False, category=""
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

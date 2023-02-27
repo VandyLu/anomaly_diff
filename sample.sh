@@ -18,11 +18,11 @@ name=transistor
 name=metal_nut
 name=screw
 name=capsule
-name=cable
 name=zipper
 name=bottle
 name=wood
 name=hazelnut
+name=cable
 
 dirname=${name}_128_samevar_2gpu
 # dirname=${name}_256_10k_2gpu
@@ -45,29 +45,30 @@ export OPENAI_LOGDIR=./work_dirs/${dirname}
 # exit
 
 # python ./scripts/guided_sample.py --model_path $model \
-python ./scripts/image_anomaly.py --model_path $model \
-	$MODEL_FLAGS $DIFFUSION_FLAGS --timestep_respacing 250 --num_samples 100 \
-	--data_dir ./data/MVTecAD/${name}/test/ --train_data_dir ./data/MVTecAD/${name}/train/ \
-	--alpha_factor 1.0 --visual_dir visual/ --use_padim True
-exit
+# python ./scripts/image_anomaly.py --model_path $model \
+# 	$MODEL_FLAGS $DIFFUSION_FLAGS --timestep_respacing 250 --num_samples 100 \
+# 	--data_dir ./data/MVTecAD/${name}/test/bent_wire --train_data_dir ./data/MVTecAD/${name}/train/ \
+# 	--alpha_factor 1.0 --visual_dir visual/ --use_padim False
+# exit
 	
-for name in  "bottle" "cable" "capsule" "carpet" "grid" "hazelnut" "leather" "metal_nut" "pill"  "screw" "tile" "toothbrush" "transistor" "wood" "zipper" 
 # for name in "carpet" 
+for name in  "bottle" "cable" "capsule" "carpet" "grid" "hazelnut" "leather" "metal_nut" "pill"  "screw" "tile" "toothbrush" "transistor" "wood" "zipper" 
 do 
 	echo $name
+	dirname=${name}_128_rot5_2gpu
 	export OPENAI_LOGDIR=./work_dirs/$dirname
 
-	visual_dir=${name}_final_visual
-	mkdir $visual_dir
+	# visual_dir=${name}_final_visual
+	# mkdir $visual_dir
 	
-	model=work_dirs/${dirname}/ema_0.995_010000.pt
+	model=work_dirs/${dirname}/ema_0.995_002500.pt
 
 	python ./scripts/image_anomaly.py --model_path $model \
 	$MODEL_FLAGS $DIFFUSION_FLAGS --timestep_respacing 250 --num_samples 100 \
 	--data_dir ./data/MVTecAD/${name}/test/ --train_data_dir ./data/MVTecAD/${name}/train/ \
-	--alpha_factor 1.0 --smooth True --use_padim True --visual_dir ${visual_dir} > result_${name}_final_smooth.txt
+	--alpha_factor 1.0 --smooth False --use_padim False --category $name
 	
-	mv *.pdf $visual_dir
+	# mv *.pdf $visual_dir
 done
 exit
 # for name in "cable" "capsule" "hazelnut" "pill" "bottle" "wood" "toothbrush" "carpet" "grid" "leather" "metal_nut" "screw" "tile" "transistor" "zipper"
