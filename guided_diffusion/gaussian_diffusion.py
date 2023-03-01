@@ -328,6 +328,7 @@ class GaussianDiffusion:
                 # The model_var_values is [-1, 1] for [min_var, max_var].
                 frac = (model_var_values + 1) / 2
                 model_log_variance = frac * max_log + (1 - frac) * min_log
+                # model_log_variance = max_log
                 model_variance = th.exp(model_log_variance)
         else:
             model_variance, model_log_variance = {
@@ -974,67 +975,6 @@ class GaussianDiffusion:
         'log_variance': out['log_variance'], 'mean': out['mean'],
         'decoder_nll_map': decoder_nll_map, 'kl_map': kl_map, "eps": out['eps']}
 
-    def _vb_terms_bpd_anom_forward(
-        self, model, x_start, x_t, t, clip_denoised=True, model_kwargs=None
-    ):
-        """
-        Get a term for the variational lower-bound.
-
-        The resulting units are bits (rather than nats, as one might expect).
-        This allows for comparison to other papers.
-
-        :return: a dict with the following keys:
-                 - 'output': a shape [N] tensor of NLLs or KLs.
-                 - 'pred_xstart': the x_0 predictions.
-        """
-        # noise = th.randn_like(x_start)
-        # x_t_1 = self.q_sample(x_start=x_start, t=t-1, noise=noise)
-        out_list = []
-        for i in range(2):
-            noise = th.randn_like(x_start)
-            x_t = self.q_sample(x_start=x_start, t=t, noise=noise)
-
-            true_mean, _, true_log_variance_clipped = self.q_posterior_mean_variance(
-                x_start=x_start, x_t=x_t, t=t
-            )
-            out = self.p_mean_variance(
-                model, x_t, t, clip_denoised=clip_denoised, model_kwargs=model_kwargs
-            )
-            # out["mean"] = self.condition_mean(
-            #     self.feat_cond_fn, out, x_t, t, model_kwargs=model_kwargs)
-            out["true_mean"] = true_mean
-            out["true_log_variance_clipped"] = true_log_variance_clipped
-            out_list.append(out)
-
-        out = self.merge_list(out_list)
-        true_mean = out["true_mean"]
-        true_log_variance_clipped = out["true_log_variance_clipped"]
-
-        kl = normal_kl(
-            true_mean, true_log_variance_clipped, out["mean"], out["log_variance"]
-        )
-        kl_map = kl / np.log(2.0)
-        kl = mean_flat(kl) / np.log(2.0)
-
-        decoder_nll = -discretized_gaussian_log_likelihood(
-            x_start, means=out["mean"], log_scales=0.5 * out["log_variance"]
-        )
-        assert decoder_nll.shape == x_start.shape
-        decoder_nll_map = decoder_nll / np.log(2.0)
-        decoder_nll = mean_flat(decoder_nll) / np.log(2.0)
-
-        # At the first timestep return the decoder NLL,
-        # otherwise return KL(q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t))
-        output = th.where((t == 0), decoder_nll, kl)
-        while len(t.shape) < len(decoder_nll.shape):
-            t = t[..., None]
-        output_map = th.where((t.expand_as(decoder_nll) == 0), decoder_nll_map, kl_map)
-
-        return {"output": output, "pred_xstart": out["pred_xstart"], 'nll_map': output_map,
-        # 'other': [true_mean, true_log_variance_clipped, out['mean'], out['log_variance']],
-        'log_variance': out['log_variance'], 'mean': out['mean'],
-        'decoder_nll_map': decoder_nll_map, 'kl_map': kl_map, "eps": out['eps']}
-
     def merge_list(self, x_list):
         x_out = dict()
         keys = x_list[0].keys()
@@ -1065,7 +1005,6 @@ class GaussianDiffusion:
         device = x_start.device
         batch_size = x_start.shape[0]
 
-        # x_start = th.nn.functional.interpolate(x_start, (128, 128), mode='bilinear')
         model_kwargs['x_target'] = x_start
 
         x_cur = th.randn_like(x_start)
@@ -1074,62 +1013,58 @@ class GaussianDiffusion:
             self.id = 0
         results = []
         vb_results = []
+        feat_results = []
         
-        t_batch = th.tensor([3] * batch_size, device=device)
         # x_t = self.q_sample(x_start=x_start, t=t_batch, noise=noise)
-        x_t = x_start.detach().clone()
+        # x_t = x_start.detach().clone()
+        # for t in list(range(self.num_timesteps))[::-1][::5]:
+        #     noise = th.randn_like(x_start)
+        #     t_batch = th.tensor([t] * batch_size, device=device)
+        #     x_t = self.q_sample(x_start=x_start, t=t_batch, noise=noise)
+
+        #     xt = (th.clip((x_t.cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
+        #     cv2.imwrite('./paper_figures/img_noisy_{:04d}_{:04d}_x0_vis.png'.format(self.id, t), xt)
+
         with th.no_grad():
-            # for t in list(range(self.num_timesteps))[::-1][-100::10]:
-            for idx in range(100):
-                t = 3
-                noise = th.randn_like(x_start)
-                t_batch = th.tensor([t] * batch_size, device=device)
-                # x_t = self.q_sample(x_start=x_start, t=t_batch, noise=noise)
-                t = idx
-                # x_t_org = x_t.detach().clone()
-                # lr = 0.005
-                lr = 0.02
-                for i in range(1):
-                    norm_grad = self.feat_cond_fn(x_t, t_batch, **model_kwargs)
-                    x_t = np.sqrt(1.0-lr**2) * x_t + lr * norm_grad
+            for t in list(range(self.num_timesteps))[::-1][-100:-10:10]:
+            # for t in [20, 50, 150]:
+                out_list = []
+                for _ in range(20):
+                    noise = th.randn_like(x_start)
+
+                    t_batch = th.tensor([t] * batch_size, device=device)
+
+                    x_t = self.q_sample(x_start=x_start, t=t_batch, noise=noise)
                     
-                    grad_vis = (norm_grad.abs().mean(dim=1)[0] * 50).clip(0,255).detach().cpu().numpy().astype(np.uint8)
-                    cv2.imwrite('./img_{:04d}_{:04d}_grad_vis.jpg'.format(self.id, t), grad_vis)
-
-                # out_list = []
-                with th.no_grad():
-                    out = self._vb_terms_bpd_anom(
-                        model,
-                        x_start=x_start,
-                        x_t=x_t,
-                        t=t_batch,
-                        clip_denoised=clip_denoised,
-                        model_kwargs=model_kwargs,
-                    )
-                    # out_list.append(out)
-                # out = merge_list(out_list)
+                    # out_list = []
+                    with th.no_grad():
+                        out = self._vb_terms_bpd_anom(
+                            model,
+                            x_start=x_start,
+                            x_t=x_t,
+                            t=t_batch,
+                            clip_denoised=clip_denoised,
+                            model_kwargs=model_kwargs,
+                        )
+                    out_list.append(out)
+                out = self.merge_list(out_list)
                 
-                noise = th.randn_like(x_start)
-
-                # grad_change = (x_t_org - x_t).abs().mean()
-                # x_t = out["mean"] + th.exp(0.5 * out["log_variance"]) * noise
-                x_t = out["mean"]
+                # x_t = out["mean"]
                 
                 # eps = self._predict_eps_from_xstart(x_t, t_batch, out["pred_xstart"])
                 # eps_err = (eps - noise).abs()
                 # out['eps_err'] = eps_err
 
-                # vb = out['nll_map'] *self.betas[t]/self.betas[0]
-                # vb_results.append((vb - vb.mean())/vb.std())
-                # vb_results.append(vb)
+                vb = out['nll_map'] *self.betas[t]/self.betas[0]
+                # vb = out['nll_map']
+                vb_results.append(vb)
 
                 diff = (out["pred_xstart"] - x_start).abs()
                 # diff = out["diff"] 
                 # results.append(diff)
                 results.append((diff - diff.mean())/diff.std())
 
-                visual = True
-                feats_rec, _ = self.feature_extractor(x_t)
+                feats_rec, _ = self.feature_extractor(out["pred_xstart"])
                 feats_org, _ = self.feature_extractor(x_start)
 
                 feat_diff_list = []
@@ -1139,13 +1074,13 @@ class GaussianDiffusion:
                 feat_diff_list = [th.nn.functional.interpolate(f, feat_diff_list[0].shape[-2:], mode='bilinear') for f in feat_diff_list]
                 feat_diff = th.cat(feat_diff_list, dim=1).mean(dim=1, keepdim=True)
                 feat_diff = th.nn.functional.interpolate(feat_diff, size=x_start.shape[-2:], mode='bilinear')
-                print(feat_diff.max(), feat_diff.mean())
-                vb = feat_diff
-                vb_results.append(feat_diff)
+                feat_results.append(feat_diff)
+                # print(feat_diff.max(), feat_diff.mean())
 
+                visual = True
                 # if (t <= 5 or t % 10 == 0) and visual:
-                if t % 10 == 0:
-                # if True:
+                # if t % 10 == 0:
+                if True:
                     if not hasattr(self, 'id'):
                         self.id = 0
 
@@ -1162,7 +1097,7 @@ class GaussianDiffusion:
 
 
                     vb_vis = out["nll_map"]
-                    vb_vis = (((vb_vis - vb_vis.mean()) / vb_vis.std()+1)*80).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
+                    vb_vis = (((vb_vis - vb_vis.mean()) / vb_vis.std()+1)*20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
                     cv2.imwrite('./img_{:04d}_{:04d}_vb_vis.jpg'.format(self.id, t), vb_vis)
                     print(t, vb.mean(), vb.max())
 
@@ -1174,6 +1109,7 @@ class GaussianDiffusion:
                     
 
         vb_map = sum(vb_results) / len(vb_results)
+        print('vb mean max: ', vb_map.mean(), vb_map.max())
         diff_map = sum(results) / len(results)
         if visual:
             x0 = (th.clip((x_start.cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
@@ -1181,7 +1117,7 @@ class GaussianDiffusion:
             # print(vb_map.min(), vb_map.max(), vb_map.mean())
             # vb_map_vis = th.clip((vb_map * 5).cpu().permute(0, 2, 3, 1).sum(-1), 0, 255).numpy()[0].astype(np.uint8)
             diff_map_vis = th.clip(((diff_map+1)*20).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
-            vb_map_vis = th.clip(((vb_map+1)*80).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
+            vb_map_vis = th.clip((vb_map * 40000).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
             # vb_map_vis = th.clip(255*(1.0-th.exp(-vb_map)).cpu().permute(0, 2, 3, 1).mean(-1), 0, 255).numpy()[0].astype(np.uint8)
             # vb_map_vis = th.clip(((vb_map - vb_map.min()) /(vb_map.max()-vb_map.min())*255).cpu().permute(0, 2, 3, 1).mean(-1), 0, 255).numpy()[0].astype(np.uint8)
             cv2.imwrite('./img_{:04d}_vbmap.jpg'.format(self.id), vb_map_vis)
@@ -1189,8 +1125,10 @@ class GaussianDiffusion:
             self.id += 1
 
         # pred_mask = vb_map.mean(dim=1, keepdim=True) * 10
-        # pred_mask = vb_map.mean(dim=1, keepdim=True) 
-        pred_mask = feat_diff
+        pred_mask = vb_map.mean(dim=1, keepdim=True) 
+        # feat_map = sum(feat_results) / len(feat_results)
+        # pred_mask = feat_map.mean(dim=1, keepdim=True) 
+        # pred_mask = feat_diff
         # pred_mask = diff_map.mean(dim=1, keepdim=True) * 10
         # print(pred_mask.mean(), pred_mask.max())
         return {
@@ -1198,7 +1136,7 @@ class GaussianDiffusion:
             'single_masks': results,
         }
 
-    def calc_bpd_loop_forward(self, model, x_start, clip_denoised=True, model_kwargs=None, visual=False):
+    def reconstruction(self, model, x_start, clip_denoised=True, model_kwargs=None, visual=False):
         """
         Compute the entire variational lower-bound, measured in bits-per-dim,
         as well as other related quantities.
@@ -1220,69 +1158,33 @@ class GaussianDiffusion:
         device = x_start.device
         batch_size = x_start.shape[0]
 
-        # x_start = th.nn.functional.interpolate(x_start, (128, 128), mode='bilinear')
         model_kwargs['x_target'] = x_start
-
-        
 
         x_cur = th.randn_like(x_start)
 
         if not hasattr(self, 'id'):
             self.id = 0
-        results = []
-        vb_results = []
         
         t_batch = th.tensor([3] * batch_size, device=device)
         # x_t = self.q_sample(x_start=x_start, t=t_batch, noise=noise)
-        # x_t = x_start.detach().clone()
+        x_t = x_start.detach().clone()
         with th.no_grad():
-            for t in list(range(self.num_timesteps))[::-1][-100::10]:
-            # for idx in range(250):
-                # t = 1
+            for idx in range(100):
+                t = 3
                 noise = th.randn_like(x_start)
                 t_batch = th.tensor([t] * batch_size, device=device)
-                x_t = self.q_sample(x_start=x_start, t=t_batch, noise=noise)
-                # t = idx
+
                 # x_t_org = x_t.detach().clone()
-                # lr = 0.01
-                # for i in range(2):
-                #     grad = self.feat_cond_fn(x_t, t_batch, **model_kwargs)
-                #     beta = grad.var()
-                #     norm_grad = grad / beta.sqrt() 
-                #     x_t = np.sqrt(1.0-lr**2) * x_t + lr * norm_grad
+                lr = 0.01
+                for i in range(5):
+                    grad = self.feat_cond_fn(x_t, t_batch, **model_kwargs)
+                    beta = grad.var()
+                    norm_grad = grad / beta.sqrt() 
+                    x_t = np.sqrt(1.0-lr**2) * x_t + lr * norm_grad
 
-                # out_list = []
-                with th.no_grad():
-                    out = self._vb_terms_bpd_anom(
-                        model,
-                        x_start=x_start,
-                        x_t=x_t,
-                        t=t_batch,
-                        clip_denoised=clip_denoised,
-                        model_kwargs=model_kwargs,
-                    )
-                    # out_list.append(out)
-                # out = merge_list(out_list)
-                
-                noise = th.randn_like(x_start)
+                out = self.p_mean_variance(model, x_t, t_batch, clip_denoised=clip_denoised, model_kwargs=model_kwargs)
+                x_t = out["mean"]
 
-                # grad_change = (x_t_org - x_t).abs().mean()
-                # x_t = out["mean"] + th.exp(0.5 * out["log_variance"]) * noise
-                
-                # eps = self._predict_eps_from_xstart(x_t, t_batch, out["pred_xstart"])
-                # eps_err = (eps - noise).abs()
-                # out['eps_err'] = eps_err
-
-                vb = out['nll_map'] *self.betas[t]/self.betas[0]
-                # vb_results.append((vb - vb.mean())/vb.std())
-                vb_results.append(vb)
-
-                diff = (out["pred_xstart"] - x_start).abs()
-                # diff = out["diff"] 
-                # results.append(diff)
-                results.append((diff - diff.mean())/diff.std())
-
-                visual = True
                 # feats_rec, _ = self.feature_extractor(x_t)
                 # feats_org, _ = self.feature_extractor(x_start)
 
@@ -1295,16 +1197,10 @@ class GaussianDiffusion:
                 # feat_diff = th.nn.functional.interpolate(feat_diff, size=(128, 128), mode='bilinear')
                 # print(feat_diff.max(), feat_diff.mean())
 
-                # if (t <= 5 or t % 10 == 0) and visual:
-                # if t % 10 == 0:
-                if True:
-                    if not hasattr(self, 'id'):
-                        self.id = 0
-
-                    x0 = (th.clip((out["pred_xstart"].cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
+                if idx % 10 == 0:
+                    print(idx)
                     xt = (th.clip((x_t.cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
-                    cv2.imwrite('./img_{:04d}_{:04d}_x0_vis.jpg'.format(self.id, t), x0)
-                    cv2.imwrite('./img_{:04d}_{:04d}_xt_vis.jpg'.format(self.id, t), xt)
+                    cv2.imwrite('./img_{:04d}_{:04d}_xt_vis.jpg'.format(self.id, idx), xt)
 
                     # feat_diff_vis = ((feat_diff-feat_diff.mean())/feat_diff.std()*60+60)[0, 0].clip(0, 255).detach().cpu().numpy().astype(np.uint8)
                     # cv2.imwrite('./img_{:04d}_{:04d}_featdiff_vis.jpg'.format(self.id, t), feat_diff_vis)
@@ -1312,42 +1208,16 @@ class GaussianDiffusion:
                     # eps_err_vis = (eps_err**2 *127.5* 20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
                     # cv2.imwrite('./img_{:04d}_{:04d}_epserr_vis.jpg'.format(self.id, t), eps_err_vis)
 
-
-                    vb_vis = out["nll_map"]
-                    vb_vis = (((vb_vis - vb_vis.mean()) / vb_vis.std()+1)*80).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
-                    cv2.imwrite('./img_{:04d}_{:04d}_vb_vis.jpg'.format(self.id, t), vb_vis)
-                    print(t, vb.mean(), vb.max())
-
-                    # result_vis = ((result_vis-result_vis.min())/(result_vis.max()-result_vis.min())*255).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
-                    diff_vis = diff
-                    diff_vis = (((diff_vis - diff_vis.mean()) / diff_vis.std()+1)*20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
-                    # diff_vis = ((diff - diff.min())/(diff.max()-diff.min())*255).clip(0, 255).detach().cpu().numpy().astype(np.uint8)
-                    cv2.imwrite('./img_{:04d}_{:04d}_diff_vis.jpg'.format(self.id, t), diff_vis)
+                    # diff_vis = diff
+                    # diff_vis = (((diff_vis - diff_vis.mean()) / diff_vis.std()+1)*20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
+                    # # diff_vis = ((diff - diff.min())/(diff.max()-diff.min())*255).clip(0, 255).detach().cpu().numpy().astype(np.uint8)
+                    # cv2.imwrite('./img_{:04d}_{:04d}_diff_vis.jpg'.format(self.id, t), diff_vis)
                     
+        x0 = (th.clip((x_start.cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
+        cv2.imwrite('./img_{:04d}_origin.jpg'.format(self.id), x0)
+        self.id += 1
 
-        vb_map = sum(vb_results) / len(vb_results)
-        diff_map = sum(results) / len(results)
-        if visual:
-            x0 = (th.clip((x_start.cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
-            cv2.imwrite('./img_{:04d}_origin.jpg'.format(self.id), x0)
-            # print(vb_map.min(), vb_map.max(), vb_map.mean())
-            # vb_map_vis = th.clip((vb_map * 5).cpu().permute(0, 2, 3, 1).sum(-1), 0, 255).numpy()[0].astype(np.uint8)
-            diff_map_vis = th.clip(((diff_map+1)*20).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
-            vb_map_vis = th.clip(((vb_map+1)*80).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
-            # vb_map_vis = th.clip(255*(1.0-th.exp(-vb_map)).cpu().permute(0, 2, 3, 1).mean(-1), 0, 255).numpy()[0].astype(np.uint8)
-            # vb_map_vis = th.clip(((vb_map - vb_map.min()) /(vb_map.max()-vb_map.min())*255).cpu().permute(0, 2, 3, 1).mean(-1), 0, 255).numpy()[0].astype(np.uint8)
-            cv2.imwrite('./img_{:04d}_vbmap.jpg'.format(self.id), vb_map_vis)
-            cv2.imwrite('./img_{:04d}_diffmap.jpg'.format(self.id), diff_map_vis)
-            self.id += 1
-
-        # pred_mask = vb_map.mean(dim=1, keepdim=True) * 10
-        pred_mask = vb_map.mean(dim=1, keepdim=True) 
-        # pred_mask = diff_map.mean(dim=1, keepdim=True) * 10
-        # print(pred_mask.mean(), pred_mask.max())
-        return {
-            "pred_mask": pred_mask,
-            'single_masks': results,
-        }
+        return x_t
 
 
 def _extract_into_tensor(arr, timesteps, broadcast_shape):

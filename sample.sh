@@ -14,15 +14,15 @@ name=carpet
 name=leather
 name=pill
 name=cable
-name=transistor
 name=metal_nut
 name=screw
-name=capsule
 name=zipper
 name=wood
-name=bottle
-name=hazelnut
 name=cable
+name=hazelnut
+name=capsule
+name=bottle
+name=transistor
 
 dirname=${name}_128_samevar_2gpu
 dirname=${name}_256_10k_2gpu
@@ -48,12 +48,15 @@ export OPENAI_LOGDIR=./work_dirs/${dirname}
 # 	$MODEL_FLAGS $DIFFUSION_FLAGS --timestep_respacing 250 --num_samples 100 \
 # 	--data_dir ./data/MVTecAD/${name}/test/ --train_data_dir ./data/MVTecAD/${name}/train/ \
 # 	--alpha_factor 1.0 --visual_dir visual/ --use_padim False --category $name
+# 	# --data_dir ./data/MVTecAD/simple --train_data_dir ./data/MVTecAD/${name}/train/ \
+# 	# --alpha_factor 1.0 --visual_dir visual/ --use_padim False --category $name
 # exit
 # cut_inner_insulation
 python ./scripts/guided_sample.py --model_path $model \
 	$MODEL_FLAGS $DIFFUSION_FLAGS --timestep_respacing 250 --num_samples 100 \
-	--data_dir ./data/MVTecAD/${name}/test/ --train_data_dir ./data/MVTecAD/${name}/train/ \
+	--data_dir ./data/MVTecAD/${name}/test/damaged_case --train_data_dir ./data/MVTecAD/${name}/train/ \
 	--alpha_factor 1.0 --category $name
+	# --data_dir ./data/MVTecAD/simple/test --train_data_dir ./data/MVTecAD/${name}/train/ \
 	# --alpha_factor 1.0 --visual_dir visual/ --use_padim False
 exit
 	
