@@ -18,8 +18,9 @@ name=pill
 name=hazelnut
 name=cable
 
-# for name in "cable"
-for name in  "bottle" "cable" "capsule" "carpet" "grid" "hazelnut" "leather" "metal_nut" "pill"  "screw" "tile" "toothbrush" "transistor" "wood" "zipper" 
+
+# for name in  "bottle" "cable" "capsule" "carpet" "grid" "hazelnut" "leather" "metal_nut" "pill"  "screw" "tile" "toothbrush" "transistor" "wood" "zipper" 
+for name in "bottle"
 do
 	# cat result_${name}_rot5_smooth.txt |grep pro |head -n 1 
 	# echo $name

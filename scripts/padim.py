@@ -31,7 +31,7 @@ def main():
     data_test = load_data(
         data_dir=args.data_dir,
         batch_size=args.batch_size,
-        image_size=256,
+        image_size=128,
         class_cond=False,
         random_flip=False,
         random_rotate=False,
@@ -41,7 +41,7 @@ def main():
     data_train = load_data(
         data_dir=args.train_data_dir,
         batch_size=1,
-        image_size=256,
+        image_size=128,
         class_cond=False,
         random_flip=False,
         random_rotate=False,
@@ -56,7 +56,7 @@ def main():
 
 
     with th.no_grad():
-        padim = Padim(256)
+        padim = Padim(128)
         padim.eval()
 
         padim.train_padim(data_train)
@@ -102,9 +102,9 @@ def main():
         #     cv2.imwrite(name.replace('.png', '_pred.png'), result)
         # exit()
     
-    with open('padim_result_{}.pkl'.format(args.category), 'wb') as f:
-        result = {'preds': pred_masks, 'masks': gt_masks, 'img_paths': img_paths}
-        pickle.dump(result, f)
+    # with open('padim_result_{}.pkl'.format(args.category), 'wb') as f:
+    #     result = {'preds': pred_masks, 'masks': gt_masks, 'img_paths': img_paths}
+    #     pickle.dump(result, f)
 
     if dist.get_rank() == 0:
         labels = th.cat(labels, dim=0).long()

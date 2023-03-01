@@ -65,10 +65,11 @@ def main():
 
     logger.log("train padim...")
     from guided_diffusion.gaussian_diffusion import Padim
-    padim = Padim(args.image_size)
+    padim = Padim(args.image_size, save_dir='./{}_padim_{}_model.pth'.format(args.category, args.image_size))
     padim.eval()
-    if args.use_padim:
-        padim.train_padim(data_train, 1.0, 0)
+    if not padim.is_trained:
+        padim.train_padim(data_train)
+        padim.save_model()
 
     logger.log("evaluating...")
     run_anomaly_evaluation(model, padim, diffusion, data, args.num_samples, args.clip_denoised, args)
@@ -102,11 +103,12 @@ def run_anomaly_evaluation(model, padim, diffusion, data, num_samples, clip_deno
         batch = batch.to(dist_util.dev())
         model_kwargs = {k: v.to(dist_util.dev()) for k, v in model_kwargs.items()}
         # model_kwargs['x_target'] = batch
+        model_kwargs['padim'] = padim
         model_kwargs['diffusion_model'] = diffusion
 
         cond_fn = diffusion.feat_cond_fn
         model_kwargs['feature_extractor'] = diffusion.feature_extractor
-        def model_fn(x, t, y=None, feature_extractor=None, x_target=None, diffusion_model=None):
+        def model_fn(x, t, y=None, padim=None, feature_extractor=None, x_target=None, diffusion_model=None):
             return model(x, t, None)
 
         minibatch_metrics = diffusion.calc_bpd_loop(
