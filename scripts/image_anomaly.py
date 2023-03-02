@@ -43,7 +43,7 @@ def main():
         data_dir=args.train_data_dir,
         batch_size=1,
         image_size=args.image_size,
-        class_cond=False,
+        class_cond=args.class_cond,
         random_flip=False,
         random_rotate=False,
         anomaly=True,
@@ -109,7 +109,7 @@ def run_anomaly_evaluation(model, padim, diffusion, data, num_samples, clip_deno
         cond_fn = diffusion.feat_cond_fn
         model_kwargs['feature_extractor'] = diffusion.feature_extractor
         def model_fn(x, t, y=None, padim=None, feature_extractor=None, x_target=None, diffusion_model=None):
-            return model(x, t, None)
+            return model(x, t, y)
 
         minibatch_metrics = diffusion.calc_bpd_loop(
             model_fn, batch, clip_denoised=clip_denoised, model_kwargs=model_kwargs
@@ -152,7 +152,7 @@ def run_anomaly_evaluation(model, padim, diffusion, data, num_samples, clip_deno
         result['names'] = img_paths
         result['preds'] = pred_masks
         result['masks'] = gt_masks
-        with open('result_diff_{}.pkl'.format(args.category), 'wb') as f:
+        with open('result_diff_uni128_{}.pkl'.format(args.category), 'wb') as f:
             pickle.dump(result, f)
     
     if dist.get_rank() == 0:

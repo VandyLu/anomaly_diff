@@ -5,7 +5,8 @@ from . import gaussian_diffusion as gd
 from .respace import SpacedDiffusion, space_timesteps
 from .unet import SuperResModel, UNetModel, EncoderUNetModel
 
-NUM_CLASSES = 1000
+# NUM_CLASSES = 1000
+NUM_CLASSES = 15
 
 
 def diffusion_defaults():

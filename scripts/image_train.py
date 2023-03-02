@@ -42,7 +42,6 @@ def main():
     def gen_wrapper(data):
         while True:
             yield from data
-    print(data)
     data = gen_wrapper(data) 
 
     logger.log("training...")

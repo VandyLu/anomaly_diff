@@ -114,11 +114,13 @@ class TrainLoop:
             self.resume_step = parse_resume_step_from_filename(resume_checkpoint)
             if dist.get_rank() == 0:
                 logger.log(f"loading model from checkpoint: {resume_checkpoint}...")
-                self.model.load_state_dict(
-                    dist_util.load_state_dict(
+
+                state_dict= dist_util.load_state_dict(
                         resume_checkpoint, map_location=dist_util.dev()
-                    )
                 )
+                # print(state_dict.keys())
+                state_dict.pop('label_emb.weight')
+                self.model.load_state_dict(state_dict, strict=False)
 
         dist_util.sync_params(self.model.parameters())
 
@@ -180,7 +182,7 @@ class TrainLoop:
     def forward_backward(self, batch, cond):
         self.mp_trainer.zero_grad()
         for i in range(0, batch.shape[0], self.microbatch):
-            # if i % 20 == 0:
+            # if i % 1 == 0:
             #     import cv2
             #     sample = batch[0].cpu().detach().permute(1, 2, 0)
             #     img_i = ((sample + 1) * 127.5).clamp(0, 255).to(th.uint8).numpy()

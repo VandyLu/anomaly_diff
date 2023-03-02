@@ -1026,10 +1026,10 @@ class GaussianDiffusion:
         #     cv2.imwrite('./paper_figures/img_noisy_{:04d}_{:04d}_x0_vis.png'.format(self.id, t), xt)
 
         with th.no_grad():
-            for t in list(range(self.num_timesteps))[::-1][-100:-10:10]:
+            for t in list(range(self.num_timesteps))[::-1][-100:-50:10]:
             # for t in [20, 50, 150]:
                 out_list = []
-                for _ in range(20):
+                for _ in range(10):
                     noise = th.randn_like(x_start)
 
                     t_batch = th.tensor([t] * batch_size, device=device)
@@ -1080,7 +1080,7 @@ class GaussianDiffusion:
                 visual = True
                 # if (t <= 5 or t % 10 == 0) and visual:
                 # if t % 10 == 0:
-                if True:
+                if visual:
                     if not hasattr(self, 'id'):
                         self.id = 0
 
@@ -1109,7 +1109,7 @@ class GaussianDiffusion:
                     
 
         vb_map = sum(vb_results) / len(vb_results)
-        print('vb mean max: ', vb_map.mean(), vb_map.max())
+        # print('vb mean max: ', vb_map.mean(), vb_map.max())
         diff_map = sum(results) / len(results)
         if visual:
             x0 = (th.clip((x_start.cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
@@ -1117,7 +1117,9 @@ class GaussianDiffusion:
             # print(vb_map.min(), vb_map.max(), vb_map.mean())
             # vb_map_vis = th.clip((vb_map * 5).cpu().permute(0, 2, 3, 1).sum(-1), 0, 255).numpy()[0].astype(np.uint8)
             diff_map_vis = th.clip(((diff_map+1)*20).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
-            vb_map_vis = th.clip((vb_map * 40000).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
+            # vb_map_vis = th.clip((vb_map * 40000).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
+            vb_map_vis = (((vb_map - vb_map.mean()) / vb_map.std()+1)*20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
+            # vb_map_vis = th.clip((vb_map * 500).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
             # vb_map_vis = th.clip(255*(1.0-th.exp(-vb_map)).cpu().permute(0, 2, 3, 1).mean(-1), 0, 255).numpy()[0].astype(np.uint8)
             # vb_map_vis = th.clip(((vb_map - vb_map.min()) /(vb_map.max()-vb_map.min())*255).cpu().permute(0, 2, 3, 1).mean(-1), 0, 255).numpy()[0].astype(np.uint8)
             cv2.imwrite('./img_{:04d}_vbmap.jpg'.format(self.id), vb_map_vis)
@@ -1169,7 +1171,7 @@ class GaussianDiffusion:
         # x_t = self.q_sample(x_start=x_start, t=t_batch, noise=noise)
         x_t = x_start.detach().clone()
         with th.no_grad():
-            for idx in range(100):
+            for idx in range(15):
                 t = 3
                 noise = th.randn_like(x_start)
                 t_batch = th.tensor([t] * batch_size, device=device)
@@ -1197,7 +1199,7 @@ class GaussianDiffusion:
                 # feat_diff = th.nn.functional.interpolate(feat_diff, size=(128, 128), mode='bilinear')
                 # print(feat_diff.max(), feat_diff.mean())
 
-                if idx % 10 == 0:
+                if idx % 1 == 0:
                     print(idx)
                     xt = (th.clip((x_t.cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
                     cv2.imwrite('./img_{:04d}_{:04d}_xt_vis.jpg'.format(self.id, idx), xt)

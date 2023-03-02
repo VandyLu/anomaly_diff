@@ -12,7 +12,13 @@ MODEL_FLAGS="--image_size 256 --num_channels 128 --num_res_blocks 3 --learn_sigm
 DIFFUSION_FLAGS="--diffusion_steps 1000 --noise_schedule linear"
 TRAIN_FLAGS="--lr 1e-4 --batch_size 4 --save_interval 5000 --lr_anneal_steps 10000 --ema_rate 0.995"
 
-# python ./scripts/image_train.py --data_dir './data/MVTecAD/cable/train/' \
+MODEL_FLAGS="--image_size 128 --num_channels 128 --num_res_blocks 3 --learn_sigma True --resblock_updown True --use_scale_shift_norm True"
+DIFFUSION_FLAGS="--diffusion_steps 1000 --noise_schedule linear --class_cond True"
+TRAIN_FLAGS="--lr 1e-4 --batch_size 4 --save_interval 5000 --lr_anneal_steps 20000 --ema_rate 0.997"
+
+MODEL_FLAGS="--attention_resolutions 32,16,8 --class_cond True --image_size 128 --learn_sigma True --num_channels 256 --num_heads 4 --num_res_blocks 2 --resblock_updown True --use_fp16 True --use_scale_shift_norm True"
+DIFFUSION_FLAGS="--diffusion_steps 1000 --noise_schedule linear --class_cond True"
+TRAIN_FLAGS="--lr 1e-4 --batch_size 4 --save_interval 5000 --lr_anneal_steps 10000 --ema_rate 0.997 --resume_checkpoint ./128x128_diffusion.pt"
 
 name=wood
 name=bottle
@@ -24,14 +30,17 @@ name=hazelnut
 name=capsule
 
 export NCCL_P2P_DISABLE=1
-export OPENAI_LOGDIR=./work_dirs/${name}_256_2gpu
-# mpiexec --oversubscribe -n 2 python ./scripts/image_train.py --data_dir ./data/MVTecAD/$name/train/ \
-# 		$MODEL_FLAGS $DIFFUSION_FLAGS $TRAIN_FLAGS
+export OPENAI_LOGDIR=./work_dirs/uni128_pretrained_20k_1gpu
 
-# exit
-# for name in "transistor"
+# mpiexec --oversubscribe -n 2 python ./scripts/image_train.py --data_dir ./data/MVTecAD/$name/train/ \
+		# $MODEL_FLAGS $DIFFUSION_FLAGS $TRAIN_FLAGS
+python ./scripts/image_train.py --data_dir ./data/UniMVTecAD/ \
+		$MODEL_FLAGS $DIFFUSION_FLAGS $TRAIN_FLAGS
+
+exit
+for name in "transistor"
 # for name in "cable" "pill" "bottle" "wood" "toothbrush" "carpet" "grid" "leather" "metal_nut" "screw" "tile" "transistor" "zipper" 
-for name in  "bottle" "cable" "capsule" "carpet" "grid" "hazelnut" "leather" "metal_nut" "pill"  "screw" "tile" "toothbrush" "transistor" "wood" "zipper" 
+# for name in  "bottle" "cable" "capsule" "carpet" "grid" "hazelnut" "leather" "metal_nut" "pill"  "screw" "tile" "toothbrush" "transistor" "wood" "zipper" 
 do 
 	echo $name
 	# export OPENAI_LOGDIR=./work_dirs/${name}_128_2gpu

@@ -145,6 +145,7 @@ class ImageDataset(Dataset):
             out_dict["y"] = np.array(self.local_classes[idx], dtype=np.int64)
         return np.transpose(arr, [2, 0, 1]), out_dict
 
+
 class AnomalyImageDataset(ImageDataset):
 
     def __init__(
@@ -160,6 +161,15 @@ class AnomalyImageDataset(ImageDataset):
         self.anom_gt = anom_gt
         self.gt_mask_path = gt_mask_path
         self.random_rotate = random_rotate
+        self.classnames = ["bottle", "cable", "capsule", "carpet", "grid", "hazelnut", "leather", "metal_nut","pill",  "screw", "tile", "toothbrush", "transistor", "wood", "zipper"] 
+        self.local_classes = [self.get_label(x) for x in self.local_images]
+
+    def get_label(self, img_name):
+        for y, name in enumerate(self.classnames):
+            if name in img_name:
+                return y
+        raise RuntimeError("{} unknown class".format(img_name))
+
 
     def __getitem__(self, idx):
         path = self.local_images[idx]
