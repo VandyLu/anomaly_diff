@@ -897,8 +897,8 @@ class GaussianDiffusion:
 
             # get prev x
             # # MSE feat loss
-            feats_target = [F.interpolate(f, feats_start[0].shape[-2:], mode='nearest') for f in feats_start]
-            feats_cat = th.cat(feats_target[:3], dim=1)
+            feats_target = [F.interpolate(f, feats_rec[0].shape[-2:], mode='nearest') for f in feats_start]
+            feats_cat = th.cat(feats_target[:2], dim=1)
 
             mse_loss = 0.1*mean_flat(((feats_cat - feats_rec) ** 2).sum(dim=1, keepdim=True))
             terms["feat_mse"] = mse_loss
@@ -1024,8 +1024,9 @@ class GaussianDiffusion:
         model_kwargs['feats_start'] = feats_start
         model_kwargs['get_feature'] = False
 
-        feats_cat = feats_start[:3]
-        feats_cat = [F.interpolate(f, size=feats_start[0].shape[-2:], mode='nearest') for f in feats_cat]
+        feats_cat = feats_start[:2]
+        feats_cat = [F.interpolate(f, size=(64, 64), mode='nearest') for f in feats_cat]
+        # feats_cat = [F.interpolate(f, size=feats_start[0].shape[-2:], mode='nearest') for f in feats_cat]
         feats_cat = th.cat(feats_cat, dim=1)
 
         with th.no_grad():

@@ -671,7 +671,8 @@ class AnomalyModel(UNetModel):
         self.feat_rec = nn.Sequential(
             normalization(512),
             nn.SiLU(),
-            conv_nd(2, 512, 256+512+1024, 1, padding=0)
+            conv_nd(2, 512, 256+512, 1, padding=0)
+            # conv_nd(2, 512, 256+512+1024, 1, padding=0)
         )
         self.feat_pool = nn.AdaptiveAvgPool2d(1)
 
@@ -731,7 +732,9 @@ class AnomalyModel(UNetModel):
             h = th.cat([h, hs.pop()], dim=1)
             h = module(h, emb)
             if idx == 10:
-                feat_rec = self.feat_rec(h.type(x.dtype))
+                # h_resize = F.interpolate(h, size=(16, 16), mode='bilinear')
+                h_resize = h
+                feat_rec = self.feat_rec(h_resize.type(x.dtype))
         h = h.type(x.dtype)
         if get_feature:
             return self.out(h), feat_rec
