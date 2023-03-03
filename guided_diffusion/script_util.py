@@ -3,7 +3,7 @@ import inspect
 
 from . import gaussian_diffusion as gd
 from .respace import SpacedDiffusion, space_timesteps
-from .unet import SuperResModel, UNetModel, EncoderUNetModel
+from .unet import SuperResModel, UNetModel, EncoderUNetModel, AnomalyModel
 
 # NUM_CLASSES = 1000
 NUM_CLASSES = 15
@@ -161,13 +161,13 @@ def create_model(
         channel_mult = tuple(int(ch_mult) for ch_mult in channel_mult.split(","))
     
     # hardcode 
-    channel_mult = (1, 1, 2, 3, 4)
+    # channel_mult = (1, 1, 2, 3, 4)
 
     attention_ds = []
     for res in attention_resolutions.split(","):
         attention_ds.append(image_size // int(res))
 
-    return UNetModel(
+    return AnomalyModel(
         image_size=image_size,
         in_channels=3,
         model_channels=num_channels,

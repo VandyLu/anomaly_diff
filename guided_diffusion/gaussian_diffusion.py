@@ -838,6 +838,10 @@ class GaussianDiffusion:
 
         terms = {}
         
+        feats_start, _ = self.feature_extractor(x_start)
+        model_kwargs['feats_start'] = feats_start
+        model_kwargs['get_feature'] = True 
+
         if self.loss_type == LossType.KL or self.loss_type == LossType.RESCALED_KL:
             terms["loss"] = self._vb_terms_bpd(
                 model=model,
@@ -850,7 +854,8 @@ class GaussianDiffusion:
             if self.loss_type == LossType.RESCALED_KL:
                 terms["loss"] *= self.num_timesteps
         elif self.loss_type == LossType.MSE or self.loss_type == LossType.RESCALED_MSE:
-            model_output = model(x_t, self._scale_timesteps(t), **model_kwargs)
+            model_output, feats_rec = model(x_t, self._scale_timesteps(t), **model_kwargs)
+            model_kwargs['get_feature'] = False
 
             if self.model_var_type in [
                 ModelVarType.LEARNED,
@@ -891,13 +896,13 @@ class GaussianDiffusion:
                 terms["loss"] = terms["mse"]
 
             # get prev x
-            # feat_t, _ = self.feature_extractor(pred_xstart)
-            # feat_start, _ = self.feature_extractor(x_start)
             # # MSE feat loss
-            # for idx in range(len(feat_t)):
-            #     mse_loss = mean_flat((feat_t[idx] - feat_start[idx]) ** 2)
-            #     terms["feat_mse.L{}".format(idx)] = mse_loss
-            #     terms["loss"] += mse_loss
+            feats_target = [F.interpolate(f, feats_start[0].shape[-2:], mode='nearest') for f in feats_start]
+            feats_cat = th.cat(feats_target[:3], dim=1)
+
+            mse_loss = 0.1*mean_flat(((feats_cat - feats_rec) ** 2).sum(dim=1, keepdim=True))
+            terms["feat_mse"] = mse_loss
+            terms["loss"] += mse_loss
 
         else:
             raise NotImplementedError(self.loss_type)
@@ -1015,21 +1020,19 @@ class GaussianDiffusion:
         vb_results = []
         feat_results = []
         
-        # x_t = self.q_sample(x_start=x_start, t=t_batch, noise=noise)
-        # x_t = x_start.detach().clone()
-        # for t in list(range(self.num_timesteps))[::-1][::5]:
-        #     noise = th.randn_like(x_start)
-        #     t_batch = th.tensor([t] * batch_size, device=device)
-        #     x_t = self.q_sample(x_start=x_start, t=t_batch, noise=noise)
+        feats_start, _ = self.feature_extractor(x_start)
+        model_kwargs['feats_start'] = feats_start
+        model_kwargs['get_feature'] = False
 
-        #     xt = (th.clip((x_t.cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
-        #     cv2.imwrite('./paper_figures/img_noisy_{:04d}_{:04d}_x0_vis.png'.format(self.id, t), xt)
+        feats_cat = feats_start[:3]
+        feats_cat = [F.interpolate(f, size=feats_start[0].shape[-2:], mode='nearest') for f in feats_cat]
+        feats_cat = th.cat(feats_cat, dim=1)
 
         with th.no_grad():
-            for t in list(range(self.num_timesteps))[::-1][-100:-50:10]:
-            # for t in [20, 50, 150]:
+            # for t in list(range(self.num_timesteps))[::-1][-100:-50:10]:
+            for t in [25, 50, 75, 100, 150, 200]:
                 out_list = []
-                for _ in range(10):
+                for _ in range(1):
                     noise = th.randn_like(x_start)
 
                     t_batch = th.tensor([t] * batch_size, device=device)
@@ -1046,6 +1049,12 @@ class GaussianDiffusion:
                             clip_denoised=clip_denoised,
                             model_kwargs=model_kwargs,
                         )
+                    model_kwargs['get_feature'] = True
+                    _, feats_rec = model(x_t, t_batch, **model_kwargs)
+                    
+                    out['feat_diff'] = ((feats_rec - feats_cat)**2).sum(1, keepdim=True)
+
+                    model_kwargs['get_feature'] = False
                     out_list.append(out)
                 out = self.merge_list(out_list)
                 
@@ -1060,21 +1069,21 @@ class GaussianDiffusion:
                 vb_results.append(vb)
 
                 diff = (out["pred_xstart"] - x_start).abs()
-                # diff = out["diff"] 
-                # results.append(diff)
-                results.append((diff - diff.mean())/diff.std())
 
-                feats_rec, _ = self.feature_extractor(out["pred_xstart"])
-                feats_org, _ = self.feature_extractor(x_start)
+                feat_diff = F.interpolate(out['feat_diff'], size=x_start.shape[-2:], mode='bilinear')
+                results.append(feat_diff)
+                print(feat_diff.mean(), feat_diff.max())
+                # feats_rec, _ = self.feature_extractor(out["pred_xstart"])
+                # feats_org, _ = self.feature_extractor(x_start)
 
-                feat_diff_list = []
-                for feat_idx, (f1, f2) in enumerate(zip(feats_rec, feats_org)):
-                    if feat_idx <= 2:
-                        feat_diff_list.append((f1 - f2)**2)
-                feat_diff_list = [th.nn.functional.interpolate(f, feat_diff_list[0].shape[-2:], mode='bilinear') for f in feat_diff_list]
-                feat_diff = th.cat(feat_diff_list, dim=1).mean(dim=1, keepdim=True)
-                feat_diff = th.nn.functional.interpolate(feat_diff, size=x_start.shape[-2:], mode='bilinear')
-                feat_results.append(feat_diff)
+                # feat_diff_list = []
+                # for feat_idx, (f1, f2) in enumerate(zip(feats_rec, feats_org)):
+                #     if feat_idx <= 2:
+                #         feat_diff_list.append((f1 - f2)**2)
+                # feat_diff_list = [th.nn.functional.interpolate(f, feat_diff_list[0].shape[-2:], mode='bilinear') for f in feat_diff_list]
+                # feat_diff = th.cat(feat_diff_list, dim=1).mean(dim=1, keepdim=True)
+                # feat_diff = th.nn.functional.interpolate(feat_diff, size=x_start.shape[-2:], mode='bilinear')
+                # feat_results.append(feat_diff)
                 # print(feat_diff.max(), feat_diff.mean())
 
                 visual = True
@@ -1089,7 +1098,8 @@ class GaussianDiffusion:
                     cv2.imwrite('./img_{:04d}_{:04d}_x0_vis.jpg'.format(self.id, t), x0)
                     cv2.imwrite('./img_{:04d}_{:04d}_xt_vis.jpg'.format(self.id, t), xt)
 
-                    feat_diff_vis = ((feat_diff-feat_diff.mean())/feat_diff.std()*60+60)[0, 0].clip(0, 255).detach().cpu().numpy().astype(np.uint8)
+                    # feat_diff_vis = ((feat_diff-feat_diff.mean())/feat_diff.std()*40+10)[0, 0].clip(0, 255).detach().cpu().numpy().astype(np.uint8)
+                    feat_diff_vis = (feat_diff * 4)[0, 0].clip(0, 255).detach().cpu().numpy().astype(np.uint8)
                     cv2.imwrite('./img_{:04d}_{:04d}_featdiff_vis.jpg'.format(self.id, t), feat_diff_vis)
 
                     # eps_err_vis = (eps_err**2 *127.5* 20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
@@ -1110,13 +1120,13 @@ class GaussianDiffusion:
 
         vb_map = sum(vb_results) / len(vb_results)
         # print('vb mean max: ', vb_map.mean(), vb_map.max())
-        diff_map = sum(results) / len(results)
+        results_map = sum(results) / len(results)
         if visual:
             x0 = (th.clip((x_start.cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
             cv2.imwrite('./img_{:04d}_origin.jpg'.format(self.id), x0)
             # print(vb_map.min(), vb_map.max(), vb_map.mean())
             # vb_map_vis = th.clip((vb_map * 5).cpu().permute(0, 2, 3, 1).sum(-1), 0, 255).numpy()[0].astype(np.uint8)
-            diff_map_vis = th.clip(((diff_map+1)*20).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
+            diff_map_vis = th.clip((results_map*4).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
             # vb_map_vis = th.clip((vb_map * 40000).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
             vb_map_vis = (((vb_map - vb_map.mean()) / vb_map.std()+1)*20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
             # vb_map_vis = th.clip((vb_map * 500).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
@@ -1127,12 +1137,8 @@ class GaussianDiffusion:
             self.id += 1
 
         # pred_mask = vb_map.mean(dim=1, keepdim=True) * 10
-        pred_mask = vb_map.mean(dim=1, keepdim=True) 
-        # feat_map = sum(feat_results) / len(feat_results)
-        # pred_mask = feat_map.mean(dim=1, keepdim=True) 
-        # pred_mask = feat_diff
-        # pred_mask = diff_map.mean(dim=1, keepdim=True) * 10
-        # print(pred_mask.mean(), pred_mask.max())
+        # pred_mask = vb_map.mean(dim=1, keepdim=True) 
+        pred_mask = results_map.mean(dim=1, keepdim=True) 
         return {
             "pred_mask": pred_mask,
             'single_masks': results,

@@ -652,15 +652,91 @@ class UNetModel(nn.Module):
             emb = emb + self.label_emb(y)
 
         h = x.type(self.dtype)
-        for module in self.input_blocks:
+        for idx, module in enumerate(self.input_blocks):
             h = module(h, emb)
             hs.append(h)
+            # print(idx, h.shape)
         h = self.middle_block(h, emb)
-        for module in self.output_blocks:
+        for idx, module in enumerate(self.output_blocks):
             h = th.cat([h, hs.pop()], dim=1)
             h = module(h, emb)
+            # print(idx, h.shape)
         h = h.type(x.dtype)
         return self.out(h)
+
+class AnomalyModel(UNetModel):
+    def __init__(self, image_size, in_channels, *args, **kwargs):
+        super().__init__(image_size, in_channels, *args, **kwargs)
+
+        self.feat_rec = nn.Sequential(
+            normalization(512),
+            nn.SiLU(),
+            conv_nd(2, 512, 256+512+1024, 1, padding=0)
+        )
+        self.feat_pool = nn.AdaptiveAvgPool2d(1)
+
+        time_embed_dim = self.model_channels * 4
+        self.feat_fc1 = nn.Sequential(
+            linear(256, time_embed_dim),
+            nn.SiLU(),
+            linear(time_embed_dim, time_embed_dim),
+        )
+        self.feat_fc2 = nn.Sequential(
+            linear(512, time_embed_dim),
+            nn.SiLU(),
+            linear(time_embed_dim, time_embed_dim),
+        )
+        self.feat_fc3 = nn.Sequential(
+            linear(1024, time_embed_dim),
+            nn.SiLU(),
+            linear(time_embed_dim, time_embed_dim),
+        )
+
+    
+    def forward(self, x, timesteps, y, feats_start, get_feature=False, **kwargs):
+        assert (y is not None) == (
+            self.num_classes is not None
+        ), "must specify y if and only if the model is class-conditional"
+
+        _, _, height, width = x.shape
+
+        hs = []
+        emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
+
+        if self.num_classes is not None:
+            assert y.shape == (x.shape[0],)
+            emb = emb + self.label_emb(y)
+        
+        feat1, feat2, feat3, feat4 = [f.detach() for f in feats_start]
+
+        emb_feat1 = self.feat_fc1(self.feat_pool(feat1).flatten(1))
+        emb_feat2 = self.feat_fc2(self.feat_pool(feat2).flatten(1))
+        emb_feat3 = self.feat_fc3(self.feat_pool(feat3).flatten(1))
+
+
+        # feat_cat = th.cat([F.interpolate(f, size=feat1.shape[-2:], mode='nearest') for f in feats], dim=1)
+        h = x.type(self.dtype)
+        emb_feat = 0
+        for idx, module in enumerate(self.input_blocks):
+            h = module(h, emb + emb_feat)
+            if idx == 6: # 256, 64, 64
+                emb_feat = emb_feat1
+            if idx == 10:
+                emb_feat = emb_feat2
+            if idx == 13:
+                emb_feat = emb_feat2
+            hs.append(h)
+        h = self.middle_block(h, emb + emb_feat)
+        for idx, module in enumerate(self.output_blocks):
+            h = th.cat([h, hs.pop()], dim=1)
+            h = module(h, emb)
+            if idx == 10:
+                feat_rec = self.feat_rec(h.type(x.dtype))
+        h = h.type(x.dtype)
+        if get_feature:
+            return self.out(h), feat_rec
+        else:
+            return self.out(h)
 
 class SuperResModel(UNetModel):
     """

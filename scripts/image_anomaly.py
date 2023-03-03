@@ -67,7 +67,7 @@ def main():
     from guided_diffusion.gaussian_diffusion import Padim
     padim = Padim(args.image_size, save_dir='./{}_padim_{}_model.pth'.format(args.category, args.image_size))
     padim.eval()
-    if not padim.is_trained:
+    if not padim.is_trained and args.use_padim:
         padim.train_padim(data_train)
         padim.save_model()
 
@@ -108,11 +108,11 @@ def run_anomaly_evaluation(model, padim, diffusion, data, num_samples, clip_deno
 
         cond_fn = diffusion.feat_cond_fn
         model_kwargs['feature_extractor'] = diffusion.feature_extractor
-        def model_fn(x, t, y=None, padim=None, feature_extractor=None, x_target=None, diffusion_model=None):
-            return model(x, t, y)
+        def model_fn(x, t, y=None, feats_start=None, get_feature=False, padim=None, feature_extractor=None, x_target=None, diffusion_model=None):
+            return model(x, t, y, feats_start, get_feature)
 
         minibatch_metrics = diffusion.calc_bpd_loop(
-            model_fn, batch, clip_denoised=clip_denoised, model_kwargs=model_kwargs
+            model_fn, batch, clip_denoised=clip_denoised, model_kwargs=model_kwargs,
         )
         # diff_masks.append(minibatch_metrics['pred_mask'])
         diff_mask = minibatch_metrics['pred_mask']
