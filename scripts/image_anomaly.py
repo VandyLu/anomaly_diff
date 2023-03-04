@@ -109,7 +109,7 @@ def run_anomaly_evaluation(model, padim, diffusion, data, num_samples, clip_deno
         cond_fn = diffusion.feat_cond_fn
         model_kwargs['feature_extractor'] = diffusion.feature_extractor
         def model_fn(x, t, y=None, padim=None, feature_extractor=None, x_target=None, diffusion_model=None):
-            return model(x, t, y)
+            return model(x, t, y if args.class_cond else None)
 
         minibatch_metrics = diffusion.calc_bpd_loop(
             model_fn, batch, clip_denoised=clip_denoised, model_kwargs=model_kwargs

@@ -31,7 +31,7 @@ def main():
     data_test = load_data(
         data_dir=args.data_dir,
         batch_size=args.batch_size,
-        image_size=128,
+        image_size=args.image_size,
         class_cond=False,
         random_flip=False,
         random_rotate=False,
@@ -41,7 +41,7 @@ def main():
     data_train = load_data(
         data_dir=args.train_data_dir,
         batch_size=1,
-        image_size=128,
+        image_size=args.image_size,
         class_cond=False,
         random_flip=False,
         random_rotate=False,
@@ -56,7 +56,7 @@ def main():
 
 
     with th.no_grad():
-        padim = Padim(128)
+        padim = Padim(args.image_size, save_dir='./{}_padim_{}_model.pth'.format(args.category, args.image_size))
         padim.eval()
 
         padim.train_padim(data_train)
@@ -138,7 +138,7 @@ def smooth_result(preds):
     return th.from_numpy(results)
 
 def create_argparser():
-    defaults = dict(
+    defaults = dict(image_size=128,
         category="",data_dir="", train_data_dir="", clip_denoised=True, num_samples=1000, batch_size=1, model_path=""
     )
     parser = argparse.ArgumentParser()
