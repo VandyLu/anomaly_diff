@@ -126,6 +126,7 @@ class GaussianDiffusion:
         model_var_type,
         loss_type,
         rescale_timesteps=False,
+        feat_layers=[0, 1, 2],
     ):
         self.model_mean_type = model_mean_type
         self.model_var_type = model_var_type
@@ -171,12 +172,14 @@ class GaussianDiffusion:
             / (1.0 - self.alphas_cumprod)
         )
 
-        self.feature_extractor = FeatureExtractor()
+        self.feature_extractor = FeatureExtractor('efficientnet')
         # fix pretrained network
         self.feature_extractor.cuda()
         self.feature_extractor.eval()
         for p in self.feature_extractor.parameters():
             p.requires_grad = False
+        
+        self.feat_layers = feat_layers
     
         sqrt_alphas_cumprod = self.sqrt_alphas_cumprod.copy()
         sqrt_one_minus_alphas_cumprod = self.sqrt_one_minus_alphas_cumprod.copy()
@@ -897,13 +900,13 @@ class GaussianDiffusion:
 
             # get prev x
             # # MSE feat loss
-            # feats_target = [F.interpolate(f, feats_rec[0].shape[-2:], mode='nearest') for f in feats_start]
-            # feats_cat = th.cat(feats_target[:2], dim=1)
+            feats_target = [F.interpolate(f, (16, 16), mode='bilinear') for f in feats_start]
+            feats_target = th.cat(feats_target[:4], dim=1)
+            # print(feats_target.shape, feats_rec.shape)
+            mse_loss = ((feats_target - feats_rec)**2).mean()
 
-            for i in range(3):
-                mse_loss = 10*mean_flat(((feats_start[i]- feats_rec[i]) ** 2).mean(dim=1, keepdim=True))
-                terms["feat_mse{}".format(i)] = mse_loss
-                terms["loss"] += mse_loss
+            terms["feat_mse"]= mse_loss
+            terms["loss"] += mse_loss
 
         else:
             raise NotImplementedError(self.loss_type)
@@ -1025,10 +1028,10 @@ class GaussianDiffusion:
         model_kwargs['feats_start'] = feats_start
         model_kwargs['get_feature'] = False
 
-        feats_cat = feats_start[:3]
-        # feats_cat = [F.interpolate(f, size=(64, 64), mode='nearest') for f in feats_cat]
-        # feats_cat = [F.interpolate(f, size=feats_start[0].shape[-2:], mode='nearest') for f in feats_cat]
-        # feats_cat = th.cat(feats_cat, dim=1)
+        feats_cat = feats_start[:4]
+        feats_cat = [F.interpolate(f, size=(16, 16), mode='bilinear') for f in feats_cat]
+        # feats_cat = [F.interpolate(f, size=(64, 64), mode='bilinear') for f in feats_cat]
+        feats_cat = th.cat(feats_cat, dim=1)
 
         with th.no_grad():
             # for t in list(range(self.num_timesteps))[::-1][-100:-50:10]:
@@ -1055,12 +1058,7 @@ class GaussianDiffusion:
                     model_kwargs['get_feature'] = True
                     _, feats_rec = model(x_t, t_batch, **model_kwargs)
                     
-                    feat_diff_list = []
-                    for i in range(3):
-                        mse = ((feats_rec[i] - feats_cat[i])**2).mean(1, keepdim=True)
-                        mse = F.interpolate(mse, size=(128, 128), mode='bilinear')
-                    feat_diff_list.append(mse)
-                    feat_diff = sum(feat_diff_list)
+                    feat_diff = ((feats_rec - feats_cat)**2).sum(dim=1, keepdim=True)
 
                     out['feat_diff'] = feat_diff
 
@@ -1105,12 +1103,12 @@ class GaussianDiffusion:
 
                     x0 = (th.clip((out["pred_xstart"].cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
                     xt = (th.clip((x_t.cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
-                    cv2.imwrite('./img_{:04d}_{:04d}_x0_vis.jpg'.format(self.id, t), x0)
-                    cv2.imwrite('./img_{:04d}_{:04d}_xt_vis.jpg'.format(self.id, t), xt)
+                    cv2.imwrite('./debug/img_{:04d}_{:04d}_x0_vis.jpg'.format(self.id, t), x0)
+                    cv2.imwrite('./debug/img_{:04d}_{:04d}_xt_vis.jpg'.format(self.id, t), xt)
 
                     # feat_diff_vis = ((feat_diff-feat_diff.mean())/feat_diff.std()*40+10)[0, 0].clip(0, 255).detach().cpu().numpy().astype(np.uint8)
-                    feat_diff_vis = (feat_diff * 9000)[0, 0].clip(0, 255).detach().cpu().numpy().astype(np.uint8)
-                    cv2.imwrite('./img_{:04d}_{:04d}_featdiff_vis.jpg'.format(self.id, t), feat_diff_vis)
+                    feat_diff_vis = (feat_diff * 0.02)[0, 0].clip(0, 255).detach().cpu().numpy().astype(np.uint8)
+                    cv2.imwrite('./debug/img_{:04d}_{:04d}_featdiff_vis.jpg'.format(self.id, t), feat_diff_vis)
 
                     # eps_err_vis = (eps_err**2 *127.5* 20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
                     # cv2.imwrite('./img_{:04d}_{:04d}_epserr_vis.jpg'.format(self.id, t), eps_err_vis)
@@ -1118,14 +1116,14 @@ class GaussianDiffusion:
 
                     vb_vis = out["nll_map"]
                     vb_vis = (((vb_vis - vb_vis.mean()) / vb_vis.std()+1)*20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
-                    cv2.imwrite('./img_{:04d}_{:04d}_vb_vis.jpg'.format(self.id, t), vb_vis)
+                    cv2.imwrite('./debug/img_{:04d}_{:04d}_vb_vis.jpg'.format(self.id, t), vb_vis)
                     print(t, vb.mean(), vb.max())
 
                     # result_vis = ((result_vis-result_vis.min())/(result_vis.max()-result_vis.min())*255).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
                     diff_vis = diff
                     diff_vis = (((diff_vis - diff_vis.mean()) / diff_vis.std()+1)*20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
                     # diff_vis = ((diff - diff.min())/(diff.max()-diff.min())*255).clip(0, 255).detach().cpu().numpy().astype(np.uint8)
-                    cv2.imwrite('./img_{:04d}_{:04d}_diff_vis.jpg'.format(self.id, t), diff_vis)
+                    cv2.imwrite('./debug/img_{:04d}_{:04d}_diff_vis.jpg'.format(self.id, t), diff_vis)
                     
 
         vb_map = sum(vb_results) / len(vb_results)
@@ -1133,17 +1131,17 @@ class GaussianDiffusion:
         results_map = sum(results) / len(results)
         if visual:
             x0 = (th.clip((x_start.cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
-            cv2.imwrite('./img_{:04d}_origin.jpg'.format(self.id), x0)
+            cv2.imwrite('./debug/img_{:04d}_origin.jpg'.format(self.id), x0)
             # print(vb_map.min(), vb_map.max(), vb_map.mean())
             # vb_map_vis = th.clip((vb_map * 5).cpu().permute(0, 2, 3, 1).sum(-1), 0, 255).numpy()[0].astype(np.uint8)
-            diff_map_vis = th.clip((results_map*9000).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
+            diff_map_vis = th.clip((results_map*0.02).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
             # vb_map_vis = th.clip((vb_map * 40000).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
             vb_map_vis = (((vb_map - vb_map.mean()) / vb_map.std()+1)*20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
             # vb_map_vis = th.clip((vb_map * 500).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
             # vb_map_vis = th.clip(255*(1.0-th.exp(-vb_map)).cpu().permute(0, 2, 3, 1).mean(-1), 0, 255).numpy()[0].astype(np.uint8)
             # vb_map_vis = th.clip(((vb_map - vb_map.min()) /(vb_map.max()-vb_map.min())*255).cpu().permute(0, 2, 3, 1).mean(-1), 0, 255).numpy()[0].astype(np.uint8)
-            cv2.imwrite('./img_{:04d}_vbmap.jpg'.format(self.id), vb_map_vis)
-            cv2.imwrite('./img_{:04d}_diffmap.jpg'.format(self.id), diff_map_vis)
+            cv2.imwrite('./debug/img_{:04d}_vbmap.jpg'.format(self.id), vb_map_vis)
+            cv2.imwrite('./debug/img_{:04d}_diffmap.jpg'.format(self.id), diff_map_vis)
             self.id += 1
 
         # pred_mask = vb_map.mean(dim=1, keepdim=True) * 10
@@ -1266,33 +1264,49 @@ def _extract_into_tensor(arr, timesteps, broadcast_shape):
     return res.expand(broadcast_shape)
 
 from torchvision.models import resnet50, resnet18, wide_resnet50_2
+from .backbones import efficientnet_b4
+
 class FeatureExtractor(th.nn.Module):
-    def __init__(self):
+    def __init__(self, name='wide_resnet50'):
         super(FeatureExtractor, self).__init__()
         # self.model = resnet50(pretrained=True)
-        self.model = wide_resnet50_2(pretrained=True)
+        self.name = name
+        if name == 'efficientnet':
+            # self.model = EfficientNet.from_pretrained('efficientnet-b4')
+            outstrides = [1, 5, 9, 21]
+            outplanes = [2, 4, 8, 16]
+            self.model = efficientnet_b4(True, outstrides, outplanes)
+        else:
+            self.model = wide_resnet50_2(pretrained=True)
         self.model.eval()
         self.model.cuda()
+
+        # test_tensor = th.zeros(1, 3, 256, 256).cuda()
+        # feats_dict = self.model({'image': test_tensor})
     
     def forward(self, img):
-        x = self.model.conv1(img)
-        x = self.model.bn1(x)
-        x = self.model.relu(x)
-        x = self.model.maxpool(x)
+        if self.name == 'wide_resnet50':
+            x = self.model.conv1(img)
+            x = self.model.bn1(x)
+            x = self.model.relu(x)
+            x = self.model.maxpool(x)
 
-        x1 = self.model.layer1(x)
-        x2 = self.model.layer2(x1)
-        x3 = self.model.layer3(x2)
-        x4 = self.model.layer4(x3)
-    
-        xg = self.model.avgpool(x4)
+            x1 = self.model.layer1(x)
+            x2 = self.model.layer2(x1)
+            x3 = self.model.layer3(x2)
+            x4 = self.model.layer4(x3)
+        
+            xg = self.model.avgpool(x4)
 
-        x11 = x1
-        x21 = F.interpolate(x2, size=x1.shape[-2:], mode='nearest')
-        x31 = F.interpolate(x3, size=x1.shape[-2:], mode='nearest')
-        x41 = F.interpolate(x4, size=x1.shape[-2:], mode='nearest')
+            x11 = x1
+            x21 = F.interpolate(x2, size=x1.shape[-2:], mode='nearest')
+            x31 = F.interpolate(x3, size=x1.shape[-2:], mode='nearest')
+            x41 = F.interpolate(x4, size=x1.shape[-2:], mode='nearest')
 
-        return [x1, x2, x3, x4], xg
+            return [x1, x2, x3, x4], xg
+        elif self.name == 'efficientnet':
+            feats_dict = self.model({'image': img})
+            return feats_dict['features'], None
     
 class Padim(th.nn.Module):
     def __init__(self, image_size=224, save_dir=''):

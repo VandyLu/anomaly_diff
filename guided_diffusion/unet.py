@@ -671,33 +671,30 @@ class AnomalyModel(UNetModel):
         self.feat_rec1 = nn.Sequential(
             normalization(512),
             nn.SiLU(),
-            conv_nd(2, 512, 256, 1, padding=0)
+            # conv_nd(2, 512, 24+32+56, 1, padding=0)
+            conv_nd(2, 512, 24+32+56+160, 1, padding=0)
         )
-        self.feat_rec2 = nn.Sequential(
-            normalization(512),
-            nn.SiLU(),
-            conv_nd(2, 512, 512, 1, padding=0)
-        )
-        self.feat_rec3 = nn.Sequential(
-            normalization(1024),
-            nn.SiLU(),
-            conv_nd(2, 1024, 1024, 1, padding=0)
-        )
+       
         self.feat_pool = nn.AdaptiveAvgPool2d(1)
 
         time_embed_dim = self.model_channels * 4
         self.feat_fc1 = nn.Sequential(
-            linear(256, time_embed_dim),
+            linear(24, time_embed_dim),
             nn.SiLU(),
             linear(time_embed_dim, time_embed_dim),
         )
         self.feat_fc2 = nn.Sequential(
-            linear(512, time_embed_dim),
+            linear(32, time_embed_dim),
             nn.SiLU(),
             linear(time_embed_dim, time_embed_dim),
         )
         self.feat_fc3 = nn.Sequential(
-            linear(1024, time_embed_dim),
+            linear(56, time_embed_dim),
+            nn.SiLU(),
+            linear(time_embed_dim, time_embed_dim),
+        )
+        self.feat_fc4 = nn.Sequential(
+            linear(160, time_embed_dim),
             nn.SiLU(),
             linear(time_embed_dim, time_embed_dim),
         )
@@ -722,6 +719,7 @@ class AnomalyModel(UNetModel):
         emb_feat1 = self.feat_fc1(self.feat_pool(feat1).flatten(1))
         emb_feat2 = self.feat_fc2(self.feat_pool(feat2).flatten(1))
         emb_feat3 = self.feat_fc3(self.feat_pool(feat3).flatten(1))
+        emb_feat4 = self.feat_fc4(self.feat_pool(feat4).flatten(1))
 
 
         # feat_cat = th.cat([F.interpolate(f, size=feat1.shape[-2:], mode='nearest') for f in feats], dim=1)
@@ -729,29 +727,28 @@ class AnomalyModel(UNetModel):
         emb_feat = 0
         for idx, module in enumerate(self.input_blocks):
             h = module(h, emb + emb_feat)
-            if idx == 6: # 256, 64, 64
-                emb_feat = emb_feat1
-            if idx == 10:
-                emb_feat = emb_feat2
-            if idx == 13:
-                emb_feat = emb_feat2
+            # print(idx, h.shape)
+            # if idx == 3: # 256, 64, 64
+            #     emb_feat = emb_feat1
+            # if idx == 6:
+            #     emb_feat = emb_feat2
+            # if idx == 10:
+            #     emb_feat = emb_feat2
+            # if idx == 13:
+            #     emb_feat = emb_feat3
             hs.append(h)
         h = self.middle_block(h, emb + emb_feat)
         for idx, module in enumerate(self.output_blocks):
             h = th.cat([h, hs.pop()], dim=1)
             h = module(h, emb)
             # print(idx, h.shape)
-            if idx == 3:
-                feat_rec3 = self.feat_rec3(h.type(x.dtype))
-            if idx == 6:
-                feat_rec2 = self.feat_rec2(h.type(x.dtype))
-            if idx == 10:
-                # h_resize = F.interpolate(h, size=(16, 16), mode='bilinear')
-                h_resize = h
-                feat_rec1 = self.feat_rec1(h.type(x.dtype))
+            if idx == 10: # 4 or 10 +resize 
+                h_resize = F.interpolate(h, size=(16, 16), mode='bilinear')
+                # h_resize = h
+                feat_rec1 = self.feat_rec1(h_resize.type(x.dtype))
         h = h.type(x.dtype)
         if get_feature:
-            return self.out(h), [feat_rec1, feat_rec2, feat_rec3]
+            return self.out(h), feat_rec1
         else:
             return self.out(h)
 
