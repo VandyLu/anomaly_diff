@@ -181,7 +181,7 @@ class GaussianDiffusion:
         sqrt_alphas_cumprod = self.sqrt_alphas_cumprod.copy()
         sqrt_one_minus_alphas_cumprod = self.sqrt_one_minus_alphas_cumprod.copy()
         # def feat_cond_fn(x, x_target, feature_extractor, t):
-        def feat_cond_fn(x, t, padim=None, feature_extractor=None, x_target=None, diffusion_model=None):
+        def feat_cond_fn(x, t, y=None, padim=None, feature_extractor=None, x_target=None, diffusion_model=None):
             assert feature_extractor is not None
             assert x_target is not None
 
@@ -1033,7 +1033,7 @@ class GaussianDiffusion:
         with th.no_grad():
             # for t in list(range(self.num_timesteps))[::-1][-100:-50:10]:
             # for t in [25, 50, 75, 100, 150, 200]:
-            for t in [100, 150, 200]:
+            for t in [100, 150]:
                 out_list = []
                 for _ in range(5):
                     noise = th.randn_like(x_start)
@@ -1194,6 +1194,7 @@ class GaussianDiffusion:
 
                 # x_t_org = x_t.detach().clone()
                 lr = 0.01
+                lr = 0.02
                 for i in range(5):
                     grad = self.feat_cond_fn(x_t, t_batch, **model_kwargs)
                     beta = grad.var()
@@ -1205,7 +1206,16 @@ class GaussianDiffusion:
 
                 # feats_rec, _ = self.feature_extractor(x_t)
                 # feats_org, _ = self.feature_extractor(x_start)
-
+                true_mean, _, true_log_variance_clipped = self.q_posterior_mean_variance(
+                    x_start=x_start, x_t=x_t, t=t_batch
+                )
+                p_mean_var = self.p_mean_variance(
+                    model, x_t, t_batch, clip_denoised=clip_denoised, model_kwargs=model_kwargs
+                )
+                kl = normal_kl(
+                    true_mean, true_log_variance_clipped, p_mean_var["mean"], p_mean_var["log_variance"]
+                )
+                
                 # feat_diff_list = []
                 # for feat_idx, (f1, f2) in enumerate(zip(feats_rec, feats_org)):
                 #     if feat_idx <= 2:
@@ -1226,6 +1236,8 @@ class GaussianDiffusion:
                     # eps_err_vis = (eps_err**2 *127.5* 20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
                     # cv2.imwrite('./img_{:04d}_{:04d}_epserr_vis.jpg'.format(self.id, t), eps_err_vis)
 
+                    vb_vis = (((kl  - kl.mean()) / kl.std()+1)*20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
+                    cv2.imwrite('./img_{:04d}_{:04d}_vb_vis.jpg'.format(self.id, idx), vb_vis)
                     # diff_vis = diff
                     # diff_vis = (((diff_vis - diff_vis.mean()) / diff_vis.std()+1)*20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
                     # # diff_vis = ((diff - diff.min())/(diff.max()-diff.min())*255).clip(0, 255).detach().cpu().numpy().astype(np.uint8)

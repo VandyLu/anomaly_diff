@@ -168,6 +168,7 @@ def create_model(
         attention_ds.append(image_size // int(res))
 
     return AnomalyModel(
+    # return UNetModel(
         image_size=image_size,
         in_channels=3,
         model_channels=num_channels,
