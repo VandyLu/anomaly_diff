@@ -897,12 +897,13 @@ class GaussianDiffusion:
 
             # get prev x
             # # MSE feat loss
-            feats_target = [F.interpolate(f, feats_rec[0].shape[-2:], mode='nearest') for f in feats_start]
-            feats_cat = th.cat(feats_target[:2], dim=1)
+            # feats_target = [F.interpolate(f, feats_rec[0].shape[-2:], mode='nearest') for f in feats_start]
+            # feats_cat = th.cat(feats_target[:2], dim=1)
 
-            mse_loss = 0.1*mean_flat(((feats_cat - feats_rec) ** 2).sum(dim=1, keepdim=True))
-            terms["feat_mse"] = mse_loss
-            terms["loss"] += mse_loss
+            for i in range(3):
+                mse_loss = 10*mean_flat(((feats_start[i]- feats_rec[i]) ** 2).mean(dim=1, keepdim=True))
+                terms["feat_mse{}".format(i)] = mse_loss
+                terms["loss"] += mse_loss
 
         else:
             raise NotImplementedError(self.loss_type)
@@ -1024,16 +1025,17 @@ class GaussianDiffusion:
         model_kwargs['feats_start'] = feats_start
         model_kwargs['get_feature'] = False
 
-        feats_cat = feats_start[:2]
-        feats_cat = [F.interpolate(f, size=(64, 64), mode='nearest') for f in feats_cat]
+        feats_cat = feats_start[:3]
+        # feats_cat = [F.interpolate(f, size=(64, 64), mode='nearest') for f in feats_cat]
         # feats_cat = [F.interpolate(f, size=feats_start[0].shape[-2:], mode='nearest') for f in feats_cat]
-        feats_cat = th.cat(feats_cat, dim=1)
+        # feats_cat = th.cat(feats_cat, dim=1)
 
         with th.no_grad():
             # for t in list(range(self.num_timesteps))[::-1][-100:-50:10]:
-            for t in [25, 50, 75, 100, 150, 200]:
+            # for t in [25, 50, 75, 100, 150, 200]:
+            for t in [100, 150, 200]:
                 out_list = []
-                for _ in range(1):
+                for _ in range(5):
                     noise = th.randn_like(x_start)
 
                     t_batch = th.tensor([t] * batch_size, device=device)
@@ -1053,7 +1055,14 @@ class GaussianDiffusion:
                     model_kwargs['get_feature'] = True
                     _, feats_rec = model(x_t, t_batch, **model_kwargs)
                     
-                    out['feat_diff'] = ((feats_rec - feats_cat)**2).sum(1, keepdim=True)
+                    feat_diff_list = []
+                    for i in range(3):
+                        mse = ((feats_rec[i] - feats_cat[i])**2).mean(1, keepdim=True)
+                        mse = F.interpolate(mse, size=(128, 128), mode='bilinear')
+                    feat_diff_list.append(mse)
+                    feat_diff = sum(feat_diff_list)
+
+                    out['feat_diff'] = feat_diff
 
                     model_kwargs['get_feature'] = False
                     out_list.append(out)
@@ -1100,7 +1109,7 @@ class GaussianDiffusion:
                     cv2.imwrite('./img_{:04d}_{:04d}_xt_vis.jpg'.format(self.id, t), xt)
 
                     # feat_diff_vis = ((feat_diff-feat_diff.mean())/feat_diff.std()*40+10)[0, 0].clip(0, 255).detach().cpu().numpy().astype(np.uint8)
-                    feat_diff_vis = (feat_diff * 4)[0, 0].clip(0, 255).detach().cpu().numpy().astype(np.uint8)
+                    feat_diff_vis = (feat_diff * 9000)[0, 0].clip(0, 255).detach().cpu().numpy().astype(np.uint8)
                     cv2.imwrite('./img_{:04d}_{:04d}_featdiff_vis.jpg'.format(self.id, t), feat_diff_vis)
 
                     # eps_err_vis = (eps_err**2 *127.5* 20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
@@ -1127,7 +1136,7 @@ class GaussianDiffusion:
             cv2.imwrite('./img_{:04d}_origin.jpg'.format(self.id), x0)
             # print(vb_map.min(), vb_map.max(), vb_map.mean())
             # vb_map_vis = th.clip((vb_map * 5).cpu().permute(0, 2, 3, 1).sum(-1), 0, 255).numpy()[0].astype(np.uint8)
-            diff_map_vis = th.clip((results_map*4).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
+            diff_map_vis = th.clip((results_map*9000).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
             # vb_map_vis = th.clip((vb_map * 40000).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
             vb_map_vis = (((vb_map - vb_map.mean()) / vb_map.std()+1)*20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
             # vb_map_vis = th.clip((vb_map * 500).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)

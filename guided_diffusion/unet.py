@@ -668,11 +668,20 @@ class AnomalyModel(UNetModel):
     def __init__(self, image_size, in_channels, *args, **kwargs):
         super().__init__(image_size, in_channels, *args, **kwargs)
 
-        self.feat_rec = nn.Sequential(
+        self.feat_rec1 = nn.Sequential(
             normalization(512),
             nn.SiLU(),
-            conv_nd(2, 512, 256+512, 1, padding=0)
-            # conv_nd(2, 512, 256+512+1024, 1, padding=0)
+            conv_nd(2, 512, 256, 1, padding=0)
+        )
+        self.feat_rec2 = nn.Sequential(
+            normalization(512),
+            nn.SiLU(),
+            conv_nd(2, 512, 512, 1, padding=0)
+        )
+        self.feat_rec3 = nn.Sequential(
+            normalization(1024),
+            nn.SiLU(),
+            conv_nd(2, 1024, 1024, 1, padding=0)
         )
         self.feat_pool = nn.AdaptiveAvgPool2d(1)
 
@@ -731,13 +740,18 @@ class AnomalyModel(UNetModel):
         for idx, module in enumerate(self.output_blocks):
             h = th.cat([h, hs.pop()], dim=1)
             h = module(h, emb)
+            # print(idx, h.shape)
+            if idx == 3:
+                feat_rec3 = self.feat_rec3(h.type(x.dtype))
+            if idx == 6:
+                feat_rec2 = self.feat_rec2(h.type(x.dtype))
             if idx == 10:
                 # h_resize = F.interpolate(h, size=(16, 16), mode='bilinear')
                 h_resize = h
-                feat_rec = self.feat_rec(h_resize.type(x.dtype))
+                feat_rec1 = self.feat_rec1(h.type(x.dtype))
         h = h.type(x.dtype)
         if get_feature:
-            return self.out(h), feat_rec
+            return self.out(h), [feat_rec1, feat_rec2, feat_rec3]
         else:
             return self.out(h)
 
