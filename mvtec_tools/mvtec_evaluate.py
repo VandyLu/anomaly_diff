@@ -84,7 +84,6 @@ def pro(anom, gt):
 
     thr_1 = valid_threshold[-1]
     thr_2 = valid_threshold[len(valid_threshold)//2]
-    print('Suggested threshold: {} | {}'.format(thr_2, thr_1))
 
     pros = np.zeros_like(valid_fpr)
     
@@ -150,6 +149,7 @@ def pro(anom, gt):
         plt.title('Threshold curve')
         #plt.show()
         plt.savefig(os.path.join(saveto, "FPR.pdf"))
+        plt.close()
 
     return I / 0.3
 

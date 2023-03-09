@@ -81,10 +81,12 @@ def run_anomaly_evaluation(model, padim, diffusion, data, num_samples, clip_deno
     num_complete = 0
     anom_metrics = {'roc': []}
     labels = []
-    scores = []
-
-    pred_masks = []
     gt_masks = []
+
+    pred_scores = []
+    pred_masks = []
+    diff_masks = []
+    feat_masks = []
     img_paths = []
     idx = 0 
     for batch, gt_mask, model_kwargs in data:
@@ -111,31 +113,27 @@ def run_anomaly_evaluation(model, padim, diffusion, data, num_samples, clip_deno
         def model_fn(x, t, y=None, feats_start=None, get_feature=False, padim=None, feature_extractor=None, x_target=None, diffusion_model=None):
             return model(x, t, y if args.class_cond else None, feats_start=feats_start, get_feature=get_feature)
 
-        minibatch_metrics = diffusion.calc_bpd_loop(
-            model_fn, batch, clip_denoised=clip_denoised, model_kwargs=model_kwargs,
+        output_masks = diffusion.calc_bpd_loop(
+            model_fn, batch, clip_denoised=clip_denoised, model_kwargs=model_kwargs, visual_dir=args.visual_dir
         )
-        # diff_masks.append(minibatch_metrics['pred_mask'])
-        diff_mask = minibatch_metrics['pred_mask']
 
-        # padim results
-        if args.use_padim:
-            with th.no_grad():
-                feat_mask = padim(batch)
-        else:
-            feat_mask = th.zeros_like(diff_mask)
-        feat_mask = feat_mask[:, 0]
-        # print(feat_mask.max())
-        diff_mask = F.interpolate(diff_mask, size=feat_mask.shape[-2:], mode='bilinear')
-        diff_mask = diff_mask[:, 0]
-        
-        pred_mask = feat_mask + diff_mask * args.alpha_factor
-        if args.smooth:
-            pred_mask = smooth_result(pred_mask)
-        pred_score = padim.get_score(pred_mask)
+        diff_mask = output_masks['diff_mask']
+        feat_mask = output_masks['feat_mask']
+
+        pred_mask = feat_mask * args.alpha_factor + diff_mask * args.beta_factor
+        # if args.smooth:
+            # pred_mask = smooth_result(pred_mask)
+        # pred_score = padim.get_score(pred_mask)
+
+        pred_score = get_score(pred_mask)
+
+        pred_scores.append(pred_score)
+        # reduce dim: N1HW->NHW
+        pred_masks.append(pred_mask[:, 0])
+        feat_masks.append(feat_mask[:, 0])
+        diff_masks.append(diff_mask[:, 0])
 
         # save results
-        scores.append(pred_score)    
-        pred_masks.append(pred_mask)
 
         # for i, path in enumerate(img_path):
         #     origin_img_vis = ((batch[i] + 1) * 127.5).clip(0, 255).permute(1, 2, 0).detach().cpu().numpy()[..., ::-1].astype(np.uint8)
@@ -146,28 +144,32 @@ def run_anomaly_evaluation(model, padim, diffusion, data, num_samples, clip_deno
         #     cv2.imwrite(args.visual_dir + path.replace('.png', '_pred.png'), pred_mask_vis)
         #     cv2.imwrite(args.visual_dir + path.replace('.png', '_diff.png'), diff_mask_vis)
         #     cv2.imwrite(args.visual_dir + path.replace('.png', '_feat.png'), feat_mask_vis)
+    # save results
+    gt_masks = (th.cat(gt_masks, dim=0)/255).long().cpu()
+    pred_masks = th.cat(pred_masks, dim=0).cpu()
+    diff_masks = th.cat(diff_masks, dim=0).cpu()
+    feat_masks = th.cat(feat_masks, dim=0).cpu()
+
+    for idx, img_name in enumerate(img_paths):
+        basedir = os.path.join(args.save_path, args.category, '_'.join(img_name.split('_')[:-1]))
+        filename = img_name.split('_')[-1]
+        if not os.path.exists(basedir):
+            os.makedirs(basedir)
+        print(basedir, filename)
+        np.savez(os.path.join(basedir, filename), diff_mask=diff_masks[idx], feat_mask=feat_masks[idx], gt_mask=gt_masks[idx])
+
 
     if dist.get_rank() == 0:
-        result = dict()
-        result['names'] = img_paths
-        result['preds'] = pred_masks
-        result['masks'] = gt_masks
-        with open('result_diff_uni128_{}.pkl'.format(args.category), 'wb') as f:
-            pickle.dump(result, f)
-    
-    if dist.get_rank() == 0:
         labels = th.cat(labels, dim=0)
-        scores = th.cat(scores, dim=0)
-        roc = evaluate(labels, scores, metric='roc')
+        pred_scores = th.cat(pred_scores, dim=0)
+        roc = evaluate(labels, pred_scores, metric='roc')
         print('roc: ', roc)
         # for i in range(len(img_paths)):
             # np.savez(img_paths[i], pred_masks[i].cpu().numpy())
-        gt_masks = (th.cat(gt_masks, dim=0)/255).long()
-        pred_masks = th.cat(pred_masks, dim=0)
         pro = evaluate(gt_masks, pred_masks, metric='pro')
         print('pro: ', pro)
         pproc = evaluate(gt_masks, pred_masks, metric='perpixel_roc')
-        print('pproc: ', pproc)
+        print('pixel: ', pproc)
 
     # if dist.get_rank() == 0:
         # for name, terms in all_metrics.items():
@@ -188,13 +190,17 @@ def smooth_result(preds):
 def create_argparser():
     defaults = dict(
         data_dir="", train_data_dir="", clip_denoised=True, num_samples=1000, batch_size=1,
-        model_path="", alpha_factor=1.0, smooth=False, visual_dir="", use_padim=False, category=""
+        model_path="", alpha_factor=1.0, beta_factor=0.0, smooth=False, visual_dir="", use_padim=False, category="",
+        save_path="./"
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()
     add_dict_to_argparser(parser, defaults)
     return parser
 
+def get_score(anoms):
+    score = anoms.flatten(1).topk(dim=-1, k=64)[0].mean(-1)
+    return score
 
 if __name__ == "__main__":
     main()

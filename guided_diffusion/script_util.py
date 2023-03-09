@@ -61,6 +61,7 @@ def model_and_diffusion_defaults():
         resblock_updown=False,
         use_fp16=False,
         use_new_attention_order=False,
+        feat_shape=16,
     )
     res.update(diffusion_defaults())
     return res
@@ -96,6 +97,7 @@ def create_model_and_diffusion(
     resblock_updown,
     use_fp16,
     use_new_attention_order,
+    feat_shape,
 ):
     model = create_model(
         image_size,
@@ -114,6 +116,7 @@ def create_model_and_diffusion(
         resblock_updown=resblock_updown,
         use_fp16=use_fp16,
         use_new_attention_order=use_new_attention_order,
+        feat_shape=feat_shape,
     )
     diffusion = create_gaussian_diffusion(
         steps=diffusion_steps,
@@ -124,6 +127,7 @@ def create_model_and_diffusion(
         rescale_timesteps=rescale_timesteps,
         rescale_learned_sigmas=rescale_learned_sigmas,
         timestep_respacing=timestep_respacing,
+        feat_shape=feat_shape,
     )
     return model, diffusion
 
@@ -145,6 +149,7 @@ def create_model(
     resblock_updown=False,
     use_fp16=False,
     use_new_attention_order=False,
+    feat_shape=16,
 ):
     if channel_mult == "":
         if image_size == 512:
@@ -171,6 +176,7 @@ def create_model(
     # return UNetModel(
         image_size=image_size,
         in_channels=3,
+        feat_shape=feat_shape,
         model_channels=num_channels,
         out_channels=(3 if not learn_sigma else 6),
         num_res_blocks=num_res_blocks,
@@ -399,6 +405,7 @@ def create_gaussian_diffusion(
     rescale_timesteps=False,
     rescale_learned_sigmas=False,
     timestep_respacing="",
+    feat_shape=16,
 ):
     betas = gd.get_named_beta_schedule(noise_schedule, steps)
     if use_kl:
@@ -426,6 +433,7 @@ def create_gaussian_diffusion(
         ),
         loss_type=loss_type,
         rescale_timesteps=rescale_timesteps,
+        feat_shape=feat_shape
     )
 
 

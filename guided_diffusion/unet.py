@@ -665,9 +665,10 @@ class UNetModel(nn.Module):
         return self.out(h)
 
 class AnomalyModel(UNetModel):
-    def __init__(self, image_size, in_channels, *args, **kwargs):
+    def __init__(self, image_size, in_channels, feat_shape, *args, **kwargs):
         super().__init__(image_size, in_channels, *args, **kwargs)
 
+        self.feat_shape = feat_shape
         self.feat_rec1 = nn.Sequential(
             normalization(512),
             nn.SiLU(),
@@ -699,8 +700,7 @@ class AnomalyModel(UNetModel):
             linear(time_embed_dim, time_embed_dim),
         )
 
-    
-    def forward(self, x, timesteps, y, feats_start, get_feature=False, **kwargs):
+    def forward(self, x, timesteps, y, get_feature=False, **kwargs):
         assert (y is not None) == (
             self.num_classes is not None
         ), "must specify y if and only if the model is class-conditional"
@@ -714,12 +714,12 @@ class AnomalyModel(UNetModel):
             assert y.shape == (x.shape[0],)
             emb = emb + self.label_emb(y)
         
-        feat1, feat2, feat3, feat4 = [f.detach() for f in feats_start]
+        # feat1, feat2, feat3, feat4 = [f.detach() for f in feats_start]
 
-        emb_feat1 = self.feat_fc1(self.feat_pool(feat1).flatten(1))
-        emb_feat2 = self.feat_fc2(self.feat_pool(feat2).flatten(1))
-        emb_feat3 = self.feat_fc3(self.feat_pool(feat3).flatten(1))
-        emb_feat4 = self.feat_fc4(self.feat_pool(feat4).flatten(1))
+        # emb_feat1 = self.feat_fc1(self.feat_pool(feat1).flatten(1))
+        # emb_feat2 = self.feat_fc2(self.feat_pool(feat2).flatten(1))
+        # emb_feat3 = self.feat_fc3(self.feat_pool(feat3).flatten(1))
+        # emb_feat4 = self.feat_fc4(self.feat_pool(feat4).flatten(1))
 
 
         # feat_cat = th.cat([F.interpolate(f, size=feat1.shape[-2:], mode='nearest') for f in feats], dim=1)
@@ -727,15 +727,6 @@ class AnomalyModel(UNetModel):
         emb_feat = 0
         for idx, module in enumerate(self.input_blocks):
             h = module(h, emb + emb_feat)
-            # print(idx, h.shape)
-            # if idx == 3: # 256, 64, 64
-            #     emb_feat = emb_feat1
-            # if idx == 6:
-            #     emb_feat = emb_feat2
-            # if idx == 10:
-            #     emb_feat = emb_feat2
-            # if idx == 13:
-            #     emb_feat = emb_feat3
             hs.append(h)
         h = self.middle_block(h, emb + emb_feat)
         for idx, module in enumerate(self.output_blocks):
@@ -743,7 +734,8 @@ class AnomalyModel(UNetModel):
             h = module(h, emb)
             # print(idx, h.shape)
             if idx == 10: # 4 or 10 +resize 
-                h_resize = F.interpolate(h, size=(16, 16), mode='bilinear')
+                # h_resize = F.interpolate(h, size=(16, 16), mode='bilinear')
+                h_resize = F.interpolate(h, size=(self.feat_shape, self.feat_shape), mode='bilinear')
                 # h_resize = h
                 feat_rec1 = self.feat_rec1(h_resize.type(x.dtype))
         h = h.type(x.dtype)

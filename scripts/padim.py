@@ -70,6 +70,7 @@ def main():
 
         for data in data_test:
             img, gt_mask, model_kwargs = data
+            print(img.shape)
 
             anom_gt = model_kwargs.pop('anom_gt')
             img_path = model_kwargs.pop('img_path')
@@ -91,15 +92,18 @@ def main():
             scores.append(score)
             pred_masks.append(anoms)
 
-        # for i in range(len(img_paths)):
-        #     name = img_paths[i]
-        #     # img = raw_imgs[i].permute(0, 2, 3, 1).cpu().numpy()[0] * np.array([0.229, 0.224, 0.225], dtype=np.float32) + np.array([0.485, 0.456, 0.406], dtype=np.float32)
-        #     img = (raw_imgs[i].permute(0, 2, 3, 1).cpu().numpy()[0] + 1.0) / 2.0
-        #     img = (img * 255).astype(np.uint8)
-        #     result = ((pred_masks[i][0].cpu() * 3).clamp(0, 255).numpy()).astype(np.uint8)
+        for i in range(len(img_paths)):
+            name = img_paths[i]
+            # img = raw_imgs[i].permute(0, 2, 3, 1).cpu().numpy()[0] * np.array([0.229, 0.224, 0.225], dtype=np.float32) + np.array([0.485, 0.456, 0.406], dtype=np.float32)
+            img = (raw_imgs[i].permute(0, 2, 3, 1).cpu().numpy()[0] + 1.0) / 2.0
+            img = (img * 255).astype(np.uint8)
+            result = pred_masks[i][0]
+            result = (result - result.mean())/result.std() * 80
+            result = (result.cpu().clamp(0, 255).numpy()).astype(np.uint8)
 
-        #     cv2.imwrite(name, img[:, :, ::-1])
-        #     cv2.imwrite(name.replace('.png', '_pred.png'), result)
+            cv2.imwrite(name, img[:, :, ::-1])
+            cv2.imwrite(name.replace('.png', '_pred.png'), result)
+        
         # exit()
     
     # with open('padim_result_{}.pkl'.format(args.category), 'wb') as f:

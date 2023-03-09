@@ -20,7 +20,7 @@ name=cable
 
 
 # for name in  "bottle" "cable" "capsule" "carpet" "grid" "hazelnut" "leather" "metal_nut" "pill"  "screw" "tile" "toothbrush" "transistor" "wood" "zipper" 
-for name in "screw"
+for name in "cable"
 do
 	# cat result_${name}_rot5_smooth.txt |grep pro |head -n 1 
 	# echo $name

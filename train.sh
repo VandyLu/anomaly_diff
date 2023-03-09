@@ -16,35 +16,36 @@ TRAIN_FLAGS="--lr 1e-4 --batch_size 4 --save_interval 500 --lr_anneal_steps 2500
 
 MODEL_FLAGS="--attention_resolutions 32,16,8 --class_cond True --diffusion_steps 1000 --image_size 256 --learn_sigma True --noise_schedule linear --num_channels 256 --num_head_channels 64 --num_res_blocks 2 --resblock_updown True --use_fp16 True --use_scale_shift_norm True"
 DIFFUSION_FLAGS="--diffusion_steps 1000 --noise_schedule linear"
-TRAIN_FLAGS="--lr 1e-4 --batch_size 2 --save_interval 5000 --lr_anneal_steps 40000 --ema_rate 0.997  --resume_checkpoint ./256x256_diffusion.pt"
+TRAIN_FLAGS="--lr 1e-4 --batch_size 2 --save_interval 10000 --lr_anneal_steps 100000 --ema_rate 0.997  --resume_checkpoint ./256x256_diffusion.pt"
 
-name=wood
-name=bottle
-name=toothbrush
-name=grid
-name=zipper
-name=transistor
-name=hazelnut
-name=capsule
+name=$1
+feat_shape=$2
 
 export NCCL_P2P_DISABLE=1
-export OPENAI_LOGDIR=./work_dirs/uni256_pretrained_effnet_16x16_10k_1gpu
-
+# export OPENAI_LOGDIR=./work_dirs/uni256_pretrained_effnet_16x16_10k_1gpu
 # mpiexec --oversubscribe -n 2 python ./scripts/image_train.py --data_dir ./data/MVTecAD/$name/train/ \
 		# $MODEL_FLAGS $DIFFUSION_FLAGS $TRAIN_FLAGS
+# python ./scripts/image_train.py --data_dir ./data/UniMVTecAD/ \
+# 		$MODEL_FLAGS $DIFFUSION_FLAGS $TRAIN_FLAGS
+export OPENAI_LOGDIR=./work_dirs/Uni256_pretrained_effnet_feat64_10k_1gpu
 python ./scripts/image_train.py --data_dir ./data/UniMVTecAD/ \
-		$MODEL_FLAGS $DIFFUSION_FLAGS $TRAIN_FLAGS
+ 	$MODEL_FLAGS $DIFFUSION_FLAGS $TRAIN_FLAGS --feat_shape 64
+# export OPENAI_LOGDIR=./work_dirs/${name}_256_pretrained_effnet_feat${feat_shape}_10k_1gpu
+# python ./scripts/image_train.py --data_dir ./data/MVTecAD/$name/train/ \
+ 	# $MODEL_FLAGS $DIFFUSION_FLAGS $TRAIN_FLAGS --feat_shape $2
 
 exit
-for name in "transistor"
-# for name in "cable" "pill" "bottle" "wood" "toothbrush" "carpet" "grid" "leather" "metal_nut" "screw" "tile" "transistor" "zipper" 
 # for name in  "bottle" "cable" "capsule" "carpet" "grid" "hazelnut" "leather" "metal_nut" "pill"  "screw" "tile" "toothbrush" "transistor" "wood" "zipper" 
+for name in  "cable" "capsule" "carpet" "grid" 
 do 
 	echo $name
 	# export OPENAI_LOGDIR=./work_dirs/${name}_128_2gpu
-	export OPENAI_LOGDIR=./work_dirs/${name}_256_10k_2gpu
-	mpiexec --oversubscribe -n 2 python ./scripts/image_train.py --data_dir ./data/MVTecAD/$name/train/ \
-		$MODEL_FLAGS $DIFFUSION_FLAGS $TRAIN_FLAGS
+	# export OPENAI_LOGDIR=./work_dirs/${name}_256_10k_2gpu
+	export OPENAI_LOGDIR=./work_dirs/${name}_256_pretrained_effnet_32x32_10k_1gpu
+	python ./scripts/image_train.py --data_dir ./data/MVTecAD/$name/train/ \
+ 		$MODEL_FLAGS $DIFFUSION_FLAGS $TRAIN_FLAGS --feat_shape 32
+	# mpiexec --oversubscribe -n 2 python ./scripts/image_train.py --data_dir ./data/MVTecAD/$name/train/ \
+		# $MODEL_FLAGS $DIFFUSION_FLAGS $TRAIN_FLAGS
 
 	# mkdir visual
 	
