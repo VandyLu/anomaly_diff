@@ -21,6 +21,7 @@ def load_data(
     random_rotate=True,
     anomaly=False,
     infinte_loop=True,
+    name='MVTecAD',
 ):
     """
     For a dataset, create a generator over (images, kwargs) pairs.
@@ -53,15 +54,26 @@ def load_data(
     
     anom_gt = None
     if anomaly:
-        anom_gt = [int('good' not in path) for path in all_files]
-        # load gt mask
-        gt_mask_path = []
-        for path in all_files:
-            gt_path = None
-            if 'good' not in path:
-                gt_path = path.replace('test', 'ground_truth')
-                gt_path = gt_path.replace('.png', '_mask.png')
-            gt_mask_path.append(gt_path)
+        if name == 'MVTecAD':
+            anom_gt = [int('good' not in path) for path in all_files]
+            # load gt mask
+            gt_mask_path = []
+            for path in all_files:
+                gt_path = None
+                if 'good' not in path:
+                    gt_path = path.replace('test', 'ground_truth')
+                    gt_path = gt_path.replace('.png', '_mask.png')
+                gt_mask_path.append(gt_path)
+        elif name == 'btad':
+            anom_gt = [int('ok' not in path) for path in all_files]
+            # load gt mask
+            gt_mask_path = []
+            for path in all_files:
+                gt_path = None
+                if 'ok' not in path:
+                    gt_path = path.replace('test', 'ground_truth')
+                    # gt_path = gt_path.replace('.bmp', '.png')
+                gt_mask_path.append(gt_path)
             
     dataset = AnomalyImageDataset(
         image_size,
@@ -74,6 +86,7 @@ def load_data(
         random_crop=random_crop,
         random_flip=random_flip,
         random_rotate=random_rotate,
+        name=name,
     )
     if deterministic:
         loader = DataLoader(
@@ -95,7 +108,7 @@ def _list_image_files_recursively(data_dir):
     for entry in sorted(bf.listdir(data_dir)):
         full_path = bf.join(data_dir, entry)
         ext = entry.split(".")[-1]
-        if "." in entry and ext.lower() in ["jpg", "jpeg", "png", "gif"]:
+        if "." in entry and ext.lower() in ["jpg", "jpeg", "png", "gif", "bmp"]:
             results.append(full_path)
         elif bf.isdir(full_path):
             results.extend(_list_image_files_recursively(full_path))
@@ -155,13 +168,18 @@ class AnomalyImageDataset(ImageDataset):
         anom_gt,
         gt_mask_path,
         random_rotate,
+        name='mvtec',
         **kwargs,
     ):
         super().__init__(resolution, image_paths, **kwargs)
+        self.name = name
         self.anom_gt = anom_gt
         self.gt_mask_path = gt_mask_path
         self.random_rotate = random_rotate
-        self.classnames = ["bottle", "cable", "capsule", "carpet", "grid", "hazelnut", "leather", "metal_nut","pill",  "screw", "tile", "toothbrush", "transistor", "wood", "zipper"] 
+        if self.name == 'MVTecAD':
+            self.classnames = ["bottle", "cable", "capsule", "carpet", "grid", "hazelnut", "leather", "metal_nut","pill",  "screw", "tile", "toothbrush", "transistor", "wood", "zipper"] 
+        elif self.name == 'btad':
+            self.classnames = ["01", "02", "03"]
         self.local_classes = [self.get_label(x) for x in self.local_images]
 
     def get_label(self, img_name):

@@ -48,6 +48,7 @@ def main():
         random_rotate=False,
         anomaly=True,
         infinte_loop=False,
+        name=args.dataset_name
     )
 
     logger.log("creating data loader...")
@@ -61,6 +62,7 @@ def main():
         random_rotate=False,
         anomaly=True,
         infinte_loop=False,
+        name=args.dataset_name
     )
 
     logger.log("train padim...")
@@ -191,7 +193,7 @@ def create_argparser():
     defaults = dict(
         data_dir="", train_data_dir="", clip_denoised=True, num_samples=1000, batch_size=1,
         model_path="", alpha_factor=1.0, beta_factor=0.0, smooth=False, visual_dir="", use_padim=False, category="",
-        save_path="./"
+        save_path="./", dataset_name=""
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

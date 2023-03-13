@@ -84,7 +84,8 @@ def main():
 
             anoms = padim(img)
             anoms = anoms[:, 0]
-            score = padim.get_score(anoms)
+            # score = padim.get_score(anoms)
+            score = anoms.flatten(1).max(-1)[0]
 
             # print(img_path, anom_gt, score)
             img_path = img_path[0]

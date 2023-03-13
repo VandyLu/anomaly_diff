@@ -37,7 +37,8 @@ def main():
         class_cond=args.class_cond,
         random_flip=False,
         random_rotate=True,
-        anomaly=True
+        anomaly=True,
+        name=args.dataset_name,
     )
     def gen_wrapper(data):
         while True:
@@ -79,6 +80,7 @@ def create_argparser():
         resume_checkpoint="",
         use_fp16=False,
         fp16_scale_growth=1e-3,
+        dataset_name='mvtec',
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()
