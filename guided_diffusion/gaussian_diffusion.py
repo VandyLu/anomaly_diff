@@ -1066,43 +1066,10 @@ class GaussianDiffusion:
 
                 results.append(feat_diff)
 
-                if visual_dir is not None:
-                    if not hasattr(self, 'id'):
-                        self.id = 0
-
-                    x0 = (th.clip((out["pred_xstart"].cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
-                    xt = (th.clip((x_t.cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
-                    cv2.imwrite(visual_dir + '/img_{:04d}_{:04d}_x0_vis.jpg'.format(self.id, t), x0)
-                    cv2.imwrite(visual_dir + '/img_{:04d}_{:04d}_xt_vis.jpg'.format(self.id, t), xt)
-
-                    feat_diff_vis = (feat_diff*3)[0, 0].clip(0, 255).detach().cpu().numpy().astype(np.uint8)
-                    cv2.imwrite(visual_dir + '/img_{:04d}_{:04d}_featdiff_vis.jpg'.format(self.id, t), feat_diff_vis)
-
-                    vb_vis = out["nll_map"]
-                    vb_vis = (((vb_vis - vb_vis.mean()) / vb_vis.std()+1)*20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
-                    cv2.imwrite(visual_dir + '/img_{:04d}_{:04d}_vb_vis.jpg'.format(self.id, t), vb_vis)
-                    print(t, vb.mean(), vb.max())
-
-                    # result_vis = ((result_vis-result_vis.min())/(result_vis.max()-result_vis.min())*255).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
-                    diff_vis = diff
-                    diff_vis = (((diff_vis - diff_vis.mean()) / diff_vis.std()+1)*20).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
-                    # diff_vis = ((diff - diff.min())/(diff.max()-diff.min())*255).clip(0, 255).detach().cpu().numpy().astype(np.uint8)
-                    cv2.imwrite(visual_dir + '/img_{:04d}_{:04d}_diff_vis.jpg'.format(self.id, t), diff_vis)
-                    
 
         vb_map = sum(vb_results) / len(vb_results)
-        # print('vb mean max: ', vb_map.mean(), vb_map.max())
         results_map = sum(results) / len(results)
-        if visual_dir is not None:
-            x0 = (th.clip((x_start.cpu().permute(0, 2, 3, 1)+1)*127.5, 0, 255).numpy()[0, :, :, ::-1]).astype(np.uint8)
-            cv2.imwrite(visual_dir  + '/img_{:04d}_origin.jpg'.format(self.id), x0)
-            diff_map_vis = th.clip((results_map*5).mean(dim=1)[0].cpu(), 0, 255).numpy().astype(np.uint8)
-            vb_map_vis = (((vb_map - vb_map.mean()) / vb_map.std())*80).cpu().permute(0, 2, 3, 1).mean(-1).clamp(0, 255).numpy()[0].astype(np.uint8)
-            cv2.imwrite(visual_dir + '/img_{:04d}_vbmap.jpg'.format(self.id), vb_map_vis)
-            cv2.imwrite(visual_dir + '/img_{:04d}_diffmap.jpg'.format(self.id), diff_map_vis)
-            self.id += 1
-
-        # pred_mask = vb_map.mean(dim=1, keepdim=True) 
+       
         diff_mask = vb_map.mean(dim=1, keepdim=True)
         feat_mask = results_map.mean(dim=1, keepdim=True) 
 
