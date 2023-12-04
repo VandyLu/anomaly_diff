@@ -705,9 +705,7 @@ class AnomalyModel(UNetModel):
             h = module(h, emb)
             # print(idx, h.shape)
             if idx == 10: # 4 or 10 +resize 
-                # h_resize = F.interpolate(h, size=(16, 16), mode='bilinear')
                 h_resize = F.interpolate(h, size=(self.feat_shape, self.feat_shape), mode='bilinear')
-                # h_resize = h
                 feat_rec1 = self.feat_rec1(h_resize.type(x.dtype))
         h = h.type(x.dtype)
         if get_feature:

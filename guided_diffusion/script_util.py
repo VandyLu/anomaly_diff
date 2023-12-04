@@ -160,22 +160,16 @@ def create_model(
             channel_mult = (1, 1, 2, 3, 4)
         elif image_size == 64:
             channel_mult = (1, 2, 3, 4)
-        # elif image_size == 32:
-            # channel_mult = (1, 2, 2)
         else:
             raise ValueError(f"unsupported image size: {image_size}")
     else:
         channel_mult = tuple(int(ch_mult) for ch_mult in channel_mult.split(","))
     
-    # hardcode 
-    # channel_mult = (1, 1, 2, 3, 4)
-
     attention_ds = []
     for res in attention_resolutions.split(","):
         attention_ds.append(image_size // int(res))
 
     return AnomalyModel(
-    # return UNetModel(
         image_size=image_size,
         in_channels=3,
         feat_shape=feat_shape,

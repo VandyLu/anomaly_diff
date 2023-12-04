@@ -1129,7 +1129,6 @@ class GaussianDiffusion:
                  - xstart_mse: an [N x T] tensor of x_0 MSEs for each timestep.
                  - mse: an [N x T] tensor of epsilon MSEs for each timestep.
         """
-        import cv2
         device = x_start.device
         batch_size = x_start.shape[0]
 
