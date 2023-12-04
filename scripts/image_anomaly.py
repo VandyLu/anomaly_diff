@@ -34,7 +34,7 @@ def main():
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
     model.load_state_dict(
-        dist_util.load_state_dict(args.model_path, map_location="cpu")
+        dist_util.load_state_dict(args.model_path, map_location="cpu"), strict=False
     )
     model.to(dist_util.dev())
     model.eval()

@@ -676,29 +676,8 @@ class AnomalyModel(UNetModel):
             conv_nd(2, 512, 24+32+56+160, 1, padding=0)
         )
        
-        self.feat_pool = nn.AdaptiveAvgPool2d(1)
-
         time_embed_dim = self.model_channels * 4
-        self.feat_fc1 = nn.Sequential(
-            linear(24, time_embed_dim),
-            nn.SiLU(),
-            linear(time_embed_dim, time_embed_dim),
-        )
-        self.feat_fc2 = nn.Sequential(
-            linear(32, time_embed_dim),
-            nn.SiLU(),
-            linear(time_embed_dim, time_embed_dim),
-        )
-        self.feat_fc3 = nn.Sequential(
-            linear(56, time_embed_dim),
-            nn.SiLU(),
-            linear(time_embed_dim, time_embed_dim),
-        )
-        self.feat_fc4 = nn.Sequential(
-            linear(160, time_embed_dim),
-            nn.SiLU(),
-            linear(time_embed_dim, time_embed_dim),
-        )
+       
 
     def forward(self, x, timesteps, y, get_feature=False, **kwargs):
         assert (y is not None) == (
@@ -714,19 +693,11 @@ class AnomalyModel(UNetModel):
             assert y.shape == (x.shape[0],)
             emb = emb + self.label_emb(y)
         
-        # feat1, feat2, feat3, feat4 = [f.detach() for f in feats_start]
-
-        # emb_feat1 = self.feat_fc1(self.feat_pool(feat1).flatten(1))
-        # emb_feat2 = self.feat_fc2(self.feat_pool(feat2).flatten(1))
-        # emb_feat3 = self.feat_fc3(self.feat_pool(feat3).flatten(1))
-        # emb_feat4 = self.feat_fc4(self.feat_pool(feat4).flatten(1))
-
-
-        # feat_cat = th.cat([F.interpolate(f, size=feat1.shape[-2:], mode='nearest') for f in feats], dim=1)
         h = x.type(self.dtype)
         emb_feat = 0
         for idx, module in enumerate(self.input_blocks):
             h = module(h, emb + emb_feat)
+            # print(idx, h.shape)
             hs.append(h)
         h = self.middle_block(h, emb + emb_feat)
         for idx, module in enumerate(self.output_blocks):

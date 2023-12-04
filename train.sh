@@ -31,8 +31,8 @@ export NCCL_P2P_DISABLE=1
 		# $MODEL_FLAGS $DIFFUSION_FLAGS $TRAIN_FLAGS
 # python ./scripts/image_train.py --data_dir ./data/UniMVTecAD/ \
 # 		$MODEL_FLAGS $DIFFUSION_FLAGS $TRAIN_FLAGS
-export OPENAI_LOGDIR=./work_dirs/btad${name}_pretrained_effnet_feat64_10k_1gpu
-python ./scripts/image_train.py --data_dir ./data/btad/$name/train \
+export OPENAI_LOGDIR=./work_dirs/${dataset}_${name}_pretrained_effnet_feat64_10k_1gpu
+python ./scripts/image_train.py --data_dir ./data/$dataset/$name/train \
  	$MODEL_FLAGS $DIFFUSION_FLAGS $TRAIN_FLAGS --feat_shape 64 --dataset_name $dataset
 # export OPENAI_LOGDIR=./work_dirs/${name}_256_pretrained_effnet_feat${feat_shape}_10k_1gpu
 # python ./scripts/image_train.py --data_dir ./data/MVTecAD/$name/train/ \
