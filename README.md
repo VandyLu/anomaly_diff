@@ -10,7 +10,6 @@ Please refer to the vanilla installation.
 # Prepare models for training
 
  * Pretrained 256x256 guided-diffusion model: [256x256_diffusion.pt](https://openaipublic.blob.core.windows.net/diffusion/jul-2021/256x256_diffusion.pt)
- * EfficientNet models: 
 
 # Prepare MVTecAD dataset
 

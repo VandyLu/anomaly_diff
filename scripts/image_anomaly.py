@@ -90,13 +90,9 @@ def run_anomaly_evaluation(model, padim, diffusion, data, num_samples, clip_deno
     diff_masks = []
     feat_masks = []
     img_paths = []
-    idx = 0 
     for batch, gt_mask, model_kwargs in data:
         anom_gt = model_kwargs.pop('anom_gt')
         img_path = model_kwargs.pop('img_path')
-        # idx += 1
-        # if idx > 10:
-        #     break
 
         # save ground truth
         labels.append(anom_gt)
